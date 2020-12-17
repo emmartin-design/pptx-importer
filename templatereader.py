@@ -1,92 +1,68 @@
 from pptx import Presentation
-import logging
 import variables as v
 
 
+def assign_preferred_layouts(template_data, report_type):
+    new_template_data = {}
+    for layout in template_data:
+        config = template_data[layout]['layout config']
+        try:  # If the report type is in the static report dict, will assign preferred status
+            if config['name'] in v.preferred_layouts[report_type]:
+                config['preferred'] = True
+        except KeyError:
+            if config['body count'] == 2:  # Section tag and body copy always included
+                for count in ['chart count', 'table count']:
+                    if config[count] == 1:
+                        for placeholder in template_data[layout]:
+                            if 'CHART' in placeholder or 'TABLE' in placeholder:
+                                if template_data[layout][placeholder]['width'] == 9.12:
+                                    config['preferred'] = True
+                    elif config[count] > 1:
+                        # Preferred layouts have placeholders of the same width.
+                        if len(set(config['width test'])) == 1:
+                            if max(config['width test']) < 9.12:
+                                config['preferred'] = True
 
-# Indicates preferred status for layouts with one body field and charts of equal size
-def preferred_layouts(ld, type):
-    if type == 'scorecard':
-        for idx in ld:
-            if ld[idx]['name'] in v.scorecard_layouts:
-                ld[idx]['preferred'] = True
-    elif type == 'dtv':
-        for idx in ld:
-            if ld[idx]['name'] in v.dtv_layouts:
-                ld[idx]['preferred'] = True
-    else:
-        for idx in ld:
-            if ld[idx]['bodycount'] == 2:  # One for the section tag, one for body copy
-                for cht in ['chartcount', 'tablecount']:
-                    if ld[idx][cht] == 1:
-                        for ph in ld[idx]:
-                            for x in ['CHART', 'TABLE']:
-                                if x in ph:
-                                    if ld[idx][ph]['width'] == 9.12:
-                                        ld[idx]['preferred'] = True
-                    elif ld[idx][cht] > 1:
-                        if len(set(ld[idx]['widthtest'])) == 1:
-                            if max(ld[idx]['widthtest']) < 9.12:
-                                ld[idx]['preferred'] = True
-            elif ld[idx]['bodycount'] == 1:  # Only for pages with 4 charts
-                if ld[idx]['chartcount'] == 4:
-                    if max(ld[idx]['widthtest']) > 3:
-                        ld[idx]['preferred'] = True
+        # If preferred, will pass on to other functions, otherwise dropped
+        if config['preferred']:
+            new_template_data[layout] = template_data[layout]
+
+    return new_template_data
 
 
-    ld_pared = ld.copy()  # Copies updated ld for paring to just essentials
-    for idx in ld:
-        if ld[idx]['preferred'] == False:  # Checks to see if slide is good for import
-            del ld_pared[idx]  # If it is not, it deletes it from the copy.
-    return ld_pared
-
-
-def readtemplate(template, type):  # This collects information about the template and drops it into a dictionary
-    layout_dict = {}
-    scorecard_dict = {}
+def collect_template_data(template, report_type):
+    template_config = {}
     prs = Presentation(template)
-    for idx, layout in enumerate(prs.slide_layouts):
-        layout_dict[idx] = {}
-        chartcount, tablecount, bodycount, titlecount, picturecount = 0, 0, 0, 0, 0
-        widths = []  # Tracks width of all charts
-        for shidx, shape in enumerate(layout.placeholders):
-            x = shape.placeholder_format.idx
-            stype = str(shape.placeholder_format.type)
-            shidxstr = str(shidx)
-            for shapetype in v.phtypes:
-                if shapetype in stype:
-                    shapename = shapetype + ' ' + shidxstr
-                    layout_dict[idx][shapename] = {
-                        'index': x,
+
+    # Create dictionary for each layout
+    for layout_idx, layout in enumerate(prs.slide_layouts):
+        template_config[layout_idx] = {}
+        template_config[layout_idx]['layout config'] = v.assign_layout_config(name=layout.name)
+        config = template_config[layout_idx]['layout config']
+
+        # Grab placeholder details shape by shape
+        for shape in layout.placeholders:
+            shape_index = shape.placeholder_format.idx
+            shape_type = str(shape.placeholder_format.type).split()[0]
+
+            for ph_type in v.placeholder_types:
+                if ph_type in shape_type:
+                    shape_name = shape_type + ' ' + str(shape_index)
+                    template_config[layout_idx][shape_name] = {
+                        'index': shape_index,
                         'width': round(shape.width.inches, 2),
                         'height': round(shape.height.inches, 2),
-                        'leftloc': round(shape.left.inches, 2)
+                        'left': round(shape.left.inches, 2)
                     }
-                    if 'CHART' in shapetype:
-                        chartcount += 1
-                        widths.append(round(shape.width.inches, 2))
-                    elif 'TABLE' in shapetype:
-                        tablecount += 1
-                        widths.append(round(shape.width.inches, 2))
-                    elif shapetype == 'BODY':
-                        bodycount += 1
-                    elif 'TITLE' in shapetype:
-                        titlecount += 1
-                    elif 'PICTURE' in shapetype:
-                        widths.append(round(shape.width.inches, 2))
-                        picturecount += 1
 
-        layout_dict[idx]['name'] = layout.name
-        layout_dict[idx]['chartcount'] = chartcount
-        layout_dict[idx]['tablecount'] = tablecount
-        layout_dict[idx]['bodycount'] = bodycount
-        layout_dict[idx]['titlecount'] = titlecount
-        layout_dict[idx]['picturecount'] = picturecount
-        layout_dict[idx]['widthtest'] = widths
-        layout_dict[idx]['preferred'] = False
+                    try:  # Increases the placeholder counts for each layout if appropriate
+                        config[(shape_type.lower() + ' count')] += 1
+                        if shape_type in ['CHART', 'TABLE', 'PICTURE']:
+                            config['width test'].append(round(shape.width.inches, 2))
+                    except KeyError:
+                        pass
 
+    template_config = assign_preferred_layouts(template_config, report_type)
+    v.log_entry('Template Analyzed')
 
-    ld = preferred_layouts(layout_dict, type)
-
-    logging.info('Template analyzed')
-    return ld
+    return template_config

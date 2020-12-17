@@ -1,14 +1,6 @@
+# To package as EXE run "python -m PyInstaller --onefile --windowed __main__.py" in terminal
 from appJar import gui
-from datetime import datetime, date, time
-from pptx import Presentation
-import os
-import glob
-import logging
-import sys
-import re
-import pandas as pd
-import numpy as np
-from datetime import datetime, date, time
+from datetime import datetime
 
 # Internal module pieces
 import variables as v
@@ -17,20 +9,9 @@ import slidecreator as sc
 import excelreader as er
 import excelreader2 as er2
 
-
-# To package as EXE run "python -m PyInstaller --onefile --windowed __main__.py" in terminal
-
-
 version = v.version
-reporttypes = v.reporttypes
+report_config = v.report_config
 
-# Creates a new log for each day the software is run
-# This makes it more accessible, considering the low volume
-# If volume increases, may switch to one file, and use fileneame in log.
-loggingfilename = 'gen_' + datetime.now().strftime('%y%B%d') + '.log'
-log_dir = os.path.join(os.path.normpath(os.getcwd()), 'logs')
-logfn = os.path.join(log_dir, loggingfilename)
-logging.basicConfig(filename=logfn, level=logging.DEBUG, format='%(lineno)d:%(levelname)s:%(message)s')
 
 # Allows only XLSX files to be selected
 def xlsxselect():
@@ -44,90 +25,101 @@ def templateselect():
                            parent=None, multiple=False, mode='r')
     app.setEntry('template', template, callFunction=False)
 
-def clearstatus():
-    msg = ""
-    for idx in range(1,4,1):
-        app.setStatusbar(msg, field=idx)
+
+def clear_status():
+    for idx in range(1, 4, 1):
+        app.setStatusbar('', field=idx)
         app.setStatusbarBg("white", field=idx)
+
+
+def create_filename():
+    file = app.getEntry('xlsxfile')
+    filename = file.replace('.xlsx', '')
+    v.log_entry('***********************************************')
+    v.log_entry(('Start of import for ' + filename))
+    return file, filename
 
 
 # Defines what happens when the import button is pressed.
 def press():
-    clearstatus()
-    datafile = app.getEntry('xlsxfile')
-    type = app.getOptionBox('Report Type')
-    template = app.getEntry('template')
-    v.statusupdate(app, 'Loading Template', 0)
-    if type in ['General Import', 'Global Navigator Country Reports']:
-        templatedata = tr.readtemplate(template, 'general')
-        v.statusupdate(app, 'Opening Excel', 1)
-        if type in ['General Import', 'Global Navigator Country Reports']:
-            try:
-                if 'Global' in type:
-                    reportlist = v.countrylist
-                else:
-                    reportlist = [None]
-                dsave = app.directoryBox(title='Where should report(s) be saved?', dirName=None, parent=None)
-                for r in reportlist:
-                    if r == None:
-                        reportname = 'dataimport | ' + datetime.now().strftime("%B %d, %Y")
-                        fulld = datafile[:-5] + '.pptx'
-                        msg = 'Processing Data: '
-                    else:
-                        reportname = r + 'Country Report'
-                        pptxname = r + '.pptx'
-                        msg = r + ' report: '
-                        fulld = dsave + "/" + pptxname
-                    if app.getCheckBox('Use Single-Color Import'):
-                        wbdata = er2.readbook(app, datafile, reportname, country=r)
-                    else:
-                        wbdata = er.readbook(app, datafile, reportname, country=r)
-                    sc.data_import(app, template, wbdata, templatedata, fulld, msg=msg)
-                    logging.info(fulld + ' saved.')
-                    logging.info('Import Complete')
-                v.statusupdate(app, 'Complete', 3)
-            # except UnboundLocalError:
-                # v.errorupdate(app, 'UnboundLocalError')
-            except PermissionError:
-                v.errorupdate(app, 'PermissionError')
-            # except IndexError:
-                # v.errorupdate(app, 'IndexError')
+    clear_status()
+    file, filename = create_filename()
 
-    elif type in ['LTO Scorecard Report', 'Value Scorecard Report']:
-        valrpt = type == 'Value Scorecard Report'
+    # Find the report type
+    report_selection = app.getOptionBox('Report Type')
+    report_list = report_config[report_selection]['report list']
+    report_type = report_config[report_selection]['report type']
+    report_suffix = report_config[report_selection]['report suffix']
+
+    # Read Optional Value inputs
+    dtv_et_totals = []
+    for value in ['QSR', 'FC', 'MID', 'CD']:
+        if app.getEntry(value) != '':
+            dtv_et_totals.append(app.getEntry(value))
+    if len(dtv_et_totals) < 4:
+        if len(dtv_et_totals) > 0:
+            v.log_entry('Must have 0 or 4 DTV values', level='warning', app_holder=app, fieldno=0)
+            return
+        else:
+            dtv_et_totals = None
+
+
+    # Find and read the template
+    template = app.getEntry('template')
+    v.log_entry('Loading Template', app_holder=app, fieldno=0)
+    template_data = tr.collect_template_data(template, report_type)
+
+    # Begin excel reading and report building process
+    v.log_entry('Opening Excel', app_holder=app, fieldno=1)
+    dsave = app.directoryBox(title='Where should report(s) be saved?', dirName=None, parent=None)
+
+    for report in report_list:  # Allows for multiple reports from one excel
+        if report is None:
+            report_name = report_type + '_' + datetime.now().strftime("%B %d, %Y")
+            full_directory = filename + '.pptx'
+        else:
+            report_name = report + report_suffix
+            full_directory = dsave + '/' + report + '.pptx'
+
+        # Find and read the excel file
         try:
-            templatedata = tr.readtemplate(template, 'scorecard')
-            v.statusupdate(app, 'Reading Data', 1)
-            wbdata = er.scorecard(datafile, valrpt)
-            v.statusupdate(app, 'Importing Data', 2)
-            fulld = datafile[:-5] + '.pptx'
-            msg = 'Processing Data: '
-            sc.data_import(app, template, wbdata, templatedata, fulld, msg=msg)
-            v.statusupdate(app, 'Complete', 3)
-        # except UnboundLocalError:
-            # v.errorupdate(app, 'UnboundLocalError')
+            if report_type in ['general', 'global']:
+                if app.getCheckBox('Use Single-Color Import'):  # statement will be removed after new selection method
+                    wbdata = er2.data_collector(app, file, report_name, country=report)
+                else:
+                    wbdata = er.readbook(app, file, report_name, country=report)
+
+            elif report_type in ['lto', 'value']:
+                wbdata = er.scorecard(file, report_config[report_selection])
+
+            elif report_type == 'dtv':
+                wbdata = er.dtv_reader(file, dtv_et_totals)
+
+            # Create pptx and drop in data
+            sc.data_import(app, template, wbdata, template_data, full_directory, msg='Processing Data')
+            v.log_entry(full_directory + ' saved.')
+            v.log_entry('Import Complete', app_holder=app, fieldno=3)
+
         except PermissionError:
-            v.errorupdate(app, 'PermissionError')
-        # except ValueError:
-            # v.errorupdate(app, 'ValueError')
-    elif type == 'DirecTV Scorecard':
-        templatedata = tr.readtemplate(template, 'dtv')
-        v.statusupdate(app, 'Reading Data', 1)
-        wbdata = er.dtv_reader(datafile)
-        v.statusupdate(app, 'Importing Data', 2)
-        fulld = datafile[:-5] + '.pptx'
-        msg = 'Processing Data: '
-        sc.data_import(app, template, wbdata, templatedata, fulld, msg=msg)
-        v.statusupdate(app, 'Complete', 3)
+            v.log_entry('File open cannot save', level='warning', app_holder=app, fieldno=3)
+        '''except ValueError:
+            v.log_entry('Check Report Type', level='warning', app_holder=app, fieldno=3)
+        except IndexError:
+            v.log_entry('Data Selection Error', level='warning', app_holder=app, fieldno=3)
+        except UnboundLocalError:
+            v.log_entry('Check Report Type', level='warning', app_holder=app, fieldno=3)'''
+
 
 with gui('File Selection', '1000x600') as app:
+    # Assign app object to variables to hold for other modules
+    v.app = app
     print('Starting Software, please wait...')
     app.setTitle('PowerPoint Importer')
     app.setFont(14)
     app.setBg("white")
     app.setPadding([20, 20])
     app.setInPadding([20, 20])
-    app.setStretch("both")
+    app.setStretch('both')
 
     app.addLabel('title', ('PowerPoint Data Import \n' + version), row=0, column=0)
     app.addWebLink('View Instructions', "https://cspnet1-my.sharepoint.com/:w:/g/personal/emartin_technomic_com/Eag8lFMxFTlApMXiLQwYudIBDc5CTE3TIWmR6TLr2a41Qg?e=02wf2i", row=0, column=1)
@@ -141,7 +133,7 @@ with gui('File Selection', '1000x600') as app:
     app.setTabbedFrameTabExpand("TabbedFrame", expand=True)
 
     app.startTab('PowerPoint Importer')
-    app.addLabelOptionBox('Report Type', reporttypes, row=0, column=2)
+    app.addLabelOptionBox('Report Type', report_config.keys(), row=0, column=2)
     app.addEntry('xlsxfile', colspan=2, row=1, column=1)
     app.addButton('Select File', xlsxselect, row=1, column=3)
     app.addButton('Begin', press, row=2, column=1, colspan=3)
@@ -149,10 +141,21 @@ with gui('File Selection', '1000x600') as app:
     app.stopTab()
 
     app.startTab('Settings')
-    app.addCheckBox('Use Single-Color Import')
-    app.addEntry('template')
-    app.setEntry('template', v.defaulttemplate, callFunction=False)
-    app.addButton('Select Alternate Template', templateselect)
+    app.addCheckBox('Use Single-Color Import', row=0, column=0)
+    app.addEntry('template', row=1, column=0, colspan=2)
+    app.setEntry('template', v.default_template, callFunction=False)
+    app.addButton('Select Alternate Template', templateselect, row=1, column=3)
+
+    app.startLabelFrame('DTV Vals', hideTitle=False, label='DirecTV Segment Values (0.0)', row=0, column=4, rowspan=2)
+    app.addLabel("l1", 'QSR')
+    app.addEntry('QSR')
+    app.addLabel("l2", 'FC')
+    app.addEntry('FC')
+    app.addLabel("l3", 'MID')
+    app.addEntry('MID')
+    app.addLabel("l4", 'CD')
+    app.addEntry('CD')
+    app.stopLabelFrame()
     app.stopTab()
 
     app.stopTabbedFrame()

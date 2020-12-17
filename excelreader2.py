@@ -1,41 +1,34 @@
 from openpyxl import load_workbook
 import pandas as pd
-import logging
 
-#Local Module
+# Local Modules
 import variables as v
 
 
 # defining variables
-chartypelist = v.charttypelist
+chart_types = v.chart_types
 data_error = v.data_error
-errordict = v.errordict
-exceptionlist = v.exceptionlist
+error_dict = v.error_dict
+exception_list = v.exception_list
 
-# pandas can open and return all worksheets as a dictionary.
-# Use pandas to return data once the interface is built out.
-def readsheet(file, wksht):
-    df = pd.read_excel(file, sheet_name=wksht)
-    return df
 
-def longestval(lst):
-    longest_val = lst[0]
-    shortest_val = lst[0]
+def longest_val(lst):
+    longest, shortest = lst[0], lst[0]
     for val in lst:
-        if len(val) > len(longest_val):
-            longest_val = val
-        elif len(val) < len(shortest_val):
-            shortest_val = val
-    return longest_val, shortest_val
+        if len(val) > len(longest):
+            longest = val
+        elif len(val) < len(shortest):
+            shortest = val
+    return longest, shortest
 
 
 def str_cleanup(string, upper=False):
-    cleanstr = str(string)
+    clean_str = str(string)
     for mark in ["'", ":"]:
-        cleanstr = cleanstr.replace(mark, "", 10)
+        clean_str = clean_str.replace(mark, "", 10)
     if upper:
-        cleanstr = cleanstr.upper().strip()
-    return cleanstr
+        clean_str = clean_str.upper().strip()
+    return clean_str
 
 
 def example_mover(text):
@@ -50,24 +43,12 @@ def example_mover(text):
     return new_text.strip(), note
 
 
-def sheet_to_df(file):  # Used for position-based report types
-    exceldata = pd.read_excel(file, index_col=0, sheet_name=0)
-    df = pd.DataFrame(exceldata)
-    textdf = pd.read_excel(file, sheet_name=1)
-    textdata = textdf.iloc[:, 0].to_list()
-    textdata.insert(0, textdf.columns[0])
-    loggingmsg = 'Converted '  + file + ' to dataframe'
-    logging.info(loggingmsg)
-    return df, textdata
-
-
-def countryfy(df, country, bases):
-    # Create new dataframe containing only the country for each report and the global average
-
+# Create new dataframe containing only the country for each report and the global average
+def filter_countries(df, country, bases):
     base_idx = df.columns.get_loc(country)
     new_bases = bases[base_idx]
-    countryfied_df = df[['Global Average', country]].copy
-    return(countryfied_df, new_bases)
+    country_df = df[['Global Average', country]].copy
+    return country_df, new_bases
 
 
 def clean_up_data(data_dict, config):  # Checks data for gaps, formats based on config
@@ -77,14 +58,14 @@ def clean_up_data(data_dict, config):  # Checks data for gaps, formats based on 
 
     # Checks if values should not be formatted as percentages
     for fig in ['*MEAN', '*FORCE CURRENCY', '*FORCE INT']:
-        if config[fig] == True:
+        if config[fig] is True:
             config['percent check'] = False
 
     if not config['*MEAN']:
         category_name_filter.append('Mean')
 
     # Removes blank keys from dictionaries
-    data_dict_no_blanks = {key:value for (key,value) in data_dict.items() if len(value) > 0}
+    data_dict_no_blanks = {key: value for (key, value) in data_dict.items() if len(value) > 0}
 
     # Filter garbage out of data by key in data dict
     for series_idx, series in enumerate(data_dict_no_blanks):
@@ -93,7 +74,7 @@ def clean_up_data(data_dict, config):  # Checks data for gaps, formats based on 
             for word in category_name_filter:
                 try:
                     data_dict_no_blanks[series].remove(word)  # If "Base" is in categories, will remove
-                except:
+                except ValueError:
                     pass
                 # This cleans up the category names
                 for cat_idx, category in enumerate(data_dict_no_blanks[series]):
@@ -109,7 +90,7 @@ def clean_up_data(data_dict, config):  # Checks data for gaps, formats based on 
                 config['vertical series'] = True
             try:
                 series_names.remove('Base')
-            except:
+            except ValueError:
                 pass
 
             # Examine and collect garbage values
@@ -159,15 +140,11 @@ def configure_pages(page_data, tag=None):
                     table_count += 1
                 else:
                     chart_count += 1
-        page_data[page]['page config'] = v.assign_page_config(chart_count, table_count, tag)
+        page_data[page]['page config'] = v.assign_page_config(chart_count, table_count, tag=tag)
     return page_data
 
 
-def infolog(msg, val):
-    logging.info(str(msg)+ ": " + str(val))
-
-
-def readbook(app, file, pptxname, country = None):
+def data_collector(app, file, pptx_name, country=None):
     wb = load_workbook(filename=file, data_only=True)
     page_data = {}
     most_recent_tab_color = None
@@ -175,17 +152,16 @@ def readbook(app, file, pptxname, country = None):
 
     sheet_data = {}
     for sheet_idx, sheet in enumerate(wb.worksheets):
-        msg_for_ui = 'Reading Excel — ' + str(round(((sheet_idx / len(wb.worksheets)) * 100), 0)) + '%'
-        v.statusupdate(app, msg_for_ui, 1)
-        infolog(sheet, sheet.sheet_state)
+        msg_for_ui = 'Reading ' + str(wb.sheetnames[sheet_idx])
+        v.log_entry(msg_for_ui, level='info', app_holder=app, fieldno=1)
 
         # Create default config data for chart and add it to the sheet data dictionary
         sheet_data[sheet_idx] = {}
-        config = v.assign_chart_config(state=sheet.sheet_state, tabcolor=sheet.sheet_properties.tabColor)
+        config = v.assign_chart_config(state=sheet.sheet_state, tab_color=sheet.sheet_properties.tabColor)
         config['notes'].append(sheet)
 
         # Create dictionary to collect data. Can only be one 'categories' per sheet
-        framedata = {}
+        frame_data = {}
         column_list = []  # Used for bases
 
         # Iterate over excel by column to collect data
@@ -195,47 +171,47 @@ def readbook(app, file, pptxname, country = None):
 
             # Check each cell for commands or color coding
             for cell_idx, cell in enumerate(col):
-                cellval, cellcolor = sheet[cell.coordinate].value, cell.fill.start_color.index
-                cellval_cleaned_up = str_cleanup(cellval, True)  # Removes extra spaces, capitalizes strings
+                cell_val, cell_color = sheet[cell.coordinate].value, cell.fill.start_color.index
+                cell_val_cleaned_up = str_cleanup(cell_val, True)  # Removes extra spaces, capitalizes strings
 
-                if cellval_cleaned_up in config.keys():  # Checks for commands
-                    config[cellval_cleaned_up] = True
+                if cell_val_cleaned_up in config.keys():  # Checks for commands
+                    config[cell_val_cleaned_up] = True
 
-                elif cellval_cleaned_up in chartypelist:  # detects chart type
-                    config['intended chart'], config['chart chosen'] = cellval_cleaned_up, True
+                elif cell_val_cleaned_up in chart_types:  # detects chart type
+                    config['intended chart'], config['chart chosen'] = cell_val_cleaned_up, True
 
-                elif cellcolor == 4:  # detects data question for footer/chart title
-                    config['title question'].append(cellval)  # Update split to question and title
+                elif cell_color == 4:  # detects data question for footer/chart title
+                    config['title question'].append(cell_val)  # Update split to question and title
 
-                elif cellcolor == 5:  # detects bases for footer
+                elif cell_color == 5:  # detects bases for footer
                     column_list.append(col_idx)  # Tracks column indexes of bases to align them with correct axis
                     try:
-                        config['bases'].append(('{:,}'.format(cellval)))  # Adds commas to base numbers when possible
+                        config['bases'].append(('{:,}'.format(cell_val)))  # Adds commas to base numbers when possible
                     except ValueError:
-                        config['bases'].append(cellval)
+                        config['bases'].append(cell_val)
 
-                elif cellcolor == 7:  # detects all data
+                elif cell_color == 7:  # detects all data
                     # First, does the cell have content?
-                    if cellval is not None:
-                        if cellval == 0:
+                    if cell_val is not None:
+                        if cell_val == 0:
                             series_lst.append(0.0)
-                        elif cellval == 1:
+                        elif cell_val == 1:
                             cell_strike_list.append(0)
-                        elif cellval_cleaned_up in v.exception_list:
-                            if '*' in cellval_cleaned_up:
+                        elif cell_val_cleaned_up in v.exception_list:
+                            if '*' in cell_val_cleaned_up:
                                 config['directional check'] = True
                             # If not a percent, is it far enough away from others to be counted as a null?
                             if (cell_idx - cell_strike_list[-1]) > 3:
                                 series_lst.append(0)
                                 cell_strike_list.append(0)
                         else:
-                            series_lst.append(cellval)
+                            series_lst.append(cell_val)
                             cell_strike_list.append(cell_idx)
 
-            framedata[col_idx] = series_lst  # Data is still pretty dirty at this point.
+            frame_data[col_idx] = series_lst  # Data is still pretty dirty at this point.
 
         # Cleans up collected data
-        clean_data, config = clean_up_data(framedata, config)
+        clean_data, config = clean_up_data(frame_data, config)
 
         if len(clean_data) > 0:
             try:
@@ -245,10 +221,10 @@ def readbook(app, file, pptxname, country = None):
 
                 # Selects only specific country data for country reports
                 if country is not None:
-                    df, config['bases'] = countryfy(df.copy(), country, config['bases'].copy())
-            except:
+                    df, config['bases'] = filter_countries(df.copy(), country, config['bases'].copy())
+            except ValueError:
                 # Data length mismatch causes errors
-                error_data = {"ERROR":['CHECK', 'DATA', 'SHEET'], "COLLECTION":[0, 0, 0], "CHECK DATA":[0, 0, 0]}
+                error_data = {"ERROR": ['CHECK', 'DATA', 'SHEET'], "COLLECTION": [0, 0, 0], "CHECK DATA": [0, 0, 0]}
                 df = pd.DataFrame.from_dict(error_data)
                 df.set_index('ERROR', inplace=True)
                 config['error list'].append('100')
@@ -263,14 +239,17 @@ def readbook(app, file, pptxname, country = None):
             config['notes'].append("Chart Transposed")
 
         # If chart is Top Box, create sum column
+        top_box_name = 'Top ' + str(len(df.columns)) + ' Box'  # Only used for Top Box charts
         if config['*TOP BOX']:
             if config['intended chart'] not in ['STACKED BAR', 'STACKED COLUMN']:
                 config['intended chart'] = 'STACKED BAR'
-            top_box_name = 'Top ' + str(len(df.columns)) + ' Box'
             df[top_box_name] = df.sum(axis=1)
 
         # Sort data by first column in DF after transposing, or if Top Box, sum first, then first column
-        if config['*SORT']:
+        sort_parameters = [config['*SORT'], config['*TOP 5'], config['*TOP 10'], config['*TOP 10']]
+        top_ranges = {'*TOP 5': 5, '*TOP 10': 10, '*TOP 20': 20}
+
+        if True in sort_parameters:
             config['notes'].append("Chart sorted by " + str(df.columns[0]))
             if config['*TOP BOX']:
                 df_s = df.sort_values(by=[top_box_name, df.columns[0]], ascending=[False, False])
@@ -278,27 +257,28 @@ def readbook(app, file, pptxname, country = None):
                 df_s = df.sort_values(by=[df.columns[0]], ascending=[False])
             df = df_s
 
+        # Truncates data to top selection.
+        # If multiple top selections are added, should use the largest.
+        for top_range in top_ranges:
+            if config[top_range]:
+                truncated_df = df.iloc[0:top_ranges[top_range], :]
+                df = truncated_df
+
         # Used to highlight highest values in table row after transposing
         config['max values'] = df.max(axis=1).values.tolist()
 
-        # Check Tabcolor against most recent. If different, create new page.
+        # Check Tab color against most recent. If different, create new page.
         if config['tab color'] is None or config['tab color'] != most_recent_tab_color:
             page_counter += 1
             page_data[page_counter] = {}
 
         most_recent_tab_color = config['tab color']
-
         page_data[page_counter][sheet_idx] = {
             'frame': df,
             'config': config
         }
 
     # Count data visualizations and assign page config
-    formatted_page_data = configure_pages(page_data, tag=pptxname)
+    formatted_page_data = configure_pages(page_data, tag=pptx_name)
 
     return formatted_page_data
-
-
-
-
-

@@ -1,18 +1,8 @@
-from collections import OrderedDict
 from pptx.util import Inches, Pt
-from pptx import Presentation
 from pptx.enum.dml import MSO_THEME_COLOR
-from pptx.dml.color import RGBColor
-from pptx.enum.chart import XL_LABEL_POSITION, XL_LEGEND_POSITION, XL_CHART_TYPE
-from pptx.enum.chart import XL_TICK_MARK, XL_DATA_LABEL_POSITION, XL_TICK_LABEL_POSITION
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.chart.data import ChartData
+from pptx.enum.chart import XL_LABEL_POSITION, XL_LEGEND_POSITION, XL_TICK_MARK, XL_TICK_LABEL_POSITION
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.slide import SlideLayout
-from pptx.oxml import parse_xml
-from pptx.oxml.ns import nsdecls
 from pptx.oxml.xmlchemy import OxmlElement
-import pandas as pd
 import numpy as np
 import logging
 
@@ -103,11 +93,11 @@ def assign_highlights(lst):  # Looks at series/category names and records their 
     overall, other, highlight = None, None, None
     for item in lst:  # Looks at columns to assign proper index for chart highlights
         itemstr = str(item).upper()
-        if itemstr in v.overall_list:
+        if itemstr in v.chart_color_variations['emphasis']:
             overall = lst.index(item)
-        elif itemstr in v.other_list:
+        elif itemstr in v.chart_color_variations['de-emphasis']:
             other = lst.index(item)
-        elif itemstr in v.highlight_list:
+        elif itemstr in v.chart_color_variations['highlight']:
             highlight = lst.index(item)
     return overall, other, highlight
 
@@ -173,7 +163,7 @@ def table_formatting(table, shape, ic, banding, height=5.35, width=9.12):
     tbl[0][-1].text = style_id
 
 
-def tablecellformat(cell, color=None, alignment=PP_ALIGN.CENTER, highlight=False, brightness=0):
+def tablecellformat(cell, color=None, alignment=PP_ALIGN.CENTER, highlight=False, brightness=0, transparent=False):
     # Removing Borders via XML. May be a better solution down the road.
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -182,7 +172,9 @@ def tablecellformat(cell, color=None, alignment=PP_ALIGN.CENTER, highlight=False
     cell.text_frame.paragraphs[0].font.size = Pt(11)
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
     cell.text_frame.paragraphs[0].alignment = alignment
-    if highlight == True:
+    if transparent:
+        cell.fill.background()
+    if highlight:
         cell.fill.solid()
         cell.fill.fore_color.theme_color = color
         cell.fill.fore_color.brightness = brightness
@@ -199,13 +191,27 @@ def legendplace(intendedchart):
 
 def create_table(df, placeholder, config):
     height, width = placeholder.height.inches, placeholder.width.inches
-    shape = placeholder.insert_table(rows=len(df.index) + 1, cols=len(df.columns) + 1)
+
+    title_displacement = 0
+    title_text = ''
+    merge_destination = 0
+    transparent = False
+    if config['chart title'] is not None:
+        title_displacement = 1
+        title_text = config['chart title']
+        merge_destination = len(df.columns)
+        transparent = True
+
+    shape = placeholder.insert_table(rows=(len(df.index) + 1 + title_displacement), cols=len(df.columns) + 1)
     table = shape.table
+
     cell = table.cell(0, 0)  # sets cell value to clear borders
-    tablecellformat(cell)  # clears borders from cell 0,0 and updates point size
+    cell.text = title_text.upper() # If there's a title, will drop in text
+    cell.merge(table.cell(0, merge_destination)) # If there's a title, will merge top row
+    tablecellformat(cell, transparent=transparent)  # clears borders from cell 0,0 and updates point size
 
     for colidx, col in enumerate(df.columns):  # Adds/formats column titles
-        cell = table.cell(0, colidx + 1)  # +1 leaves empty space top left
+        cell = table.cell((0 + title_displacement), colidx + 1)  # +1 leaves empty space top left
         cell.text = str(col)
         tablecellformat(cell)  # removes borders from series names and updates point size
         cell.text_frame.paragraphs[0].font.bold = True
@@ -213,14 +219,14 @@ def create_table(df, placeholder, config):
 
     dfcols = list(df)
     for rowidx, row in enumerate(df.index):  # Adds/formats row titles
-        cell = table.cell(rowidx + 1, 0)
+        cell = table.cell((rowidx + 1 + title_displacement), 0)
         cell.text = str(row)
         tablecellformat(cell, alignment=PP_ALIGN.LEFT)
 
         rowmax = None  # Default value for non-highlighted charts
 
         for colidx, col in enumerate(dfcols):  # Adds/formats values
-            cell = table.cell(rowidx + 1, colidx + 1)
+            cell = table.cell((rowidx + 1 + title_displacement), colidx + 1)
             cellval = df[col][rowidx]
             cellindex = round(cellval/colavg, 2)  # For report-interal indexes, not specific report-external indexes
 
@@ -292,7 +298,7 @@ def create_table(df, placeholder, config):
                         cell.text = (str(round((float(cellval * 100)), config['dec places']))) + '%'
                     else:
                         try:
-                            cell.text = (str(int(cellval * 100))) + '%'
+                            cell.text = (str(v.trueround(cellval * 100))) + '%'
                         except ValueError:  # Handles NaN
                             cell.text = '0%'
                 else:
@@ -312,9 +318,9 @@ def create_chart(df, placeholder, chart_data, config):
     intendedchart = config['intended chart']
     legendloc = config['legend loc']
 
-    graphic_frame = placeholder.insert_chart(v.charttypelist[intendedchart], chart_data)
+    graphic_frame = placeholder.insert_chart(v.chart_types[intendedchart], chart_data)
     chart = graphic_frame.chart
-    chart.chart_style = v.chartstyles[config['preferred color']]
+    chart.chart_style = v.chart_styles[config['preferred color']]
 
     #Handle titles
     if config['chart title'] == None:

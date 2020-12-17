@@ -8,26 +8,16 @@ from datetime import datetime
 import variables as v
 
 # defining variables
-chartypelist = v.charttypelist
+chart_types = v.chart_types
 data_error = v.data_error
-errordict = v.errordict
-exceptionlist = v.exceptionlist
+error_dict = v.error_dict
+exception_list = v.exception_list
 
 # pandas can open and return all worksheets as a dictionary.
 # Use pandas to return data once the interface is built out.
 def readsheet(file, wksht):
     df = pd.read_excel(file, sheet_name=wksht)
     return df
-
-def longestval(lst):
-    longest_val = lst[0]
-    shortest_val = lst[0]
-    for val in lst:
-        if len(val) > len(longest_val):
-            longest_val = val
-        elif len(val) < len(shortest_val):
-            shortest_val = val
-    return longest_val, shortest_val
 
 
 def strcleanup(string, upper=False):
@@ -53,8 +43,8 @@ def scrubber(dataog, app=None):
     data = dataog.copy()
     for slidecount, slide in enumerate(dataog):
         if app != None:
-            msg_for_ui = 'Scrubbing Data — ' + str(round(((slidecount / len(dataog)) * 100), 0)) + '%'
-            v.statusupdate(app, msg_for_ui, 1)
+            msg_for_ui = 'Scrubbing Data — ' + str(trueround(((slidecount / len(dataog)) * 100), 0)) + '%'
+            v.log_entry(msg_for_ui, app_holder=app, fieldno=1)
         page_config = dataog[slide]['page config']
         page_config['number of tables'] = 0
         page_config['number of charts'] = 0
@@ -75,11 +65,8 @@ def scrubber(dataog, app=None):
 
         if datavizcount + copycount == 0:
             del data[slide]
-            infolog('Scrubbed', data)
     return data
 
-def infolog(msg, val):
-    logging.info(str(msg)+ ": " + str(val))
 
 def readbook(app, file, pptxname, country = None):
     wb = load_workbook(filename=file, data_only=True)
@@ -91,9 +78,8 @@ def readbook(app, file, pptxname, country = None):
     slidecount = 0
 
     for sheetcount, wksht in enumerate(wb.worksheets):
-        msg_for_ui = 'Reading Excel — ' + str(round(((sheetcount / len(wb.worksheets)) * 100), 0)) + '%'
-        v.statusupdate(app, msg_for_ui, 1)
-        infolog(wksht, wksht.sheet_state)
+        msg_for_ui = 'Reading ' + str(wb.sheetnames[sheetcount])
+        v.log_entry(msg_for_ui, app_holder=app, fieldno=1)
         if wksht.sheet_state == "visible":
             tabcolor = wksht.sheet_properties.tabColor
         if sheetcount not in slide_data:
@@ -101,7 +87,7 @@ def readbook(app, file, pptxname, country = None):
             slide_data[sheetcount]['page config'] = v.assign_page_config(tag=pptxname)
 
         # Creates new config dict for each tab
-        config = v.assign_chart_config(state=wksht.sheet_state, tabcolor=wksht.sheet_properties.tabColor)
+        config = v.assign_chart_config(state=wksht.sheet_state, tab_color=wksht.sheet_properties.tabColor)
 
         if wksht.sheet_state == "visible":
             tabcolor = wksht.sheet_properties.tabColor  # Used for combining charts
@@ -126,13 +112,12 @@ def readbook(app, file, pptxname, country = None):
                         config[cellval_c] = True
                     elif cell.font.underline == 'single':  # detects slide copy command
                         config['copy'].append(cellval)
-                    elif cellval_c in chartypelist:  # detects chart type command
+                    elif cellval_c in chart_types:  # detects chart type command
                         config['intended chart'], config['chart chosen'] = cellval_c, True
 
                     # color based selections
                     elif cellcolor == 4:  # detects data question for footer/chart title
                         config['title question'].append(cellval)  # Update split to question and title
-                        infolog('DQ', cellval)
 
                     elif cellcolor == 5:  # detects bases for footer
                         colchecklst.append(colcheckno)  # Used to determine base labels (rows v. cols)
@@ -140,7 +125,6 @@ def readbook(app, file, pptxname, country = None):
                             config['bases'].append(('{:,}'.format(cellval)))  # Adds commas to base numbers
                         except ValueError:
                             config['bases'].append(cellval)
-                        infolog('Base', cellval)
                         colcheckno += 1
 
                     elif cellcolor == 7:  # detects categories
@@ -168,7 +152,7 @@ def readbook(app, file, pptxname, country = None):
                             logging.warning('106 ERROR')
 
                         if config['*FORCE PERCENT'] is True:
-                            if cellval in exceptionlist:
+                            if cellval in exception_list:
                                 percentvalue = 0
                             else:
                                 percentvalue = float(cellval) / 100
@@ -178,7 +162,7 @@ def readbook(app, file, pptxname, country = None):
                                 serieslist.append(float(cellval))
                             if cellval == 1 and config['percent check'] is True:
                                 serieslist.append(1.0)
-                            elif cellval == 0 or cellval_c in exceptionlist:
+                            elif cellval == 0 or cellval_c in exception_list:
                                 serieslist.append(0.0)
                             elif '=' in str(cellval):
                                 config['error list'].append('107')  # TO UPDATE: Read formulas
@@ -301,7 +285,10 @@ def readbook(app, file, pptxname, country = None):
                 df[topboxname] = df.sum(axis=1)
 
             #  Sort data with Pandas. Does not work if category/series mismatch error thrown earlier
-            if config['*SORT'] is True and '100' not in config['error list']:
+            sort_parameters = [config['*SORT'], config['*TOP 5'], config['*TOP 10'], config['*TOP 10']]
+            top_ranges = {'*TOP 5': 5, '*TOP 10': 10, '*TOP 20': 20}
+
+            if True in sort_parameters and '100' not in config['error list']:
                 if len(framedata) > 0:
                     colname = df.columns[0]
                     s_note = "Chart sorted by " + str(colname)
@@ -311,6 +298,12 @@ def readbook(app, file, pptxname, country = None):
                     else:
                         df_s = df.sort_values(by=[colname], ascending=[False])
                     df = df_s
+
+            # If top selections are true:
+            for top_range in top_ranges:
+                if config[top_range]:
+                    truncated_df = df.iloc[0:top_ranges[top_range], : ]
+                    df = truncated_df
 
             #  Combine Check looks at tab color to see if new tab combined with previous on slide
             if combinecount > 6:
@@ -330,319 +323,441 @@ def readbook(app, file, pptxname, country = None):
             slidecount += 1
 
     # Scrub Blanks
-    msg_for_ui = 'Scrubbing Data'
-    v.statusupdate(app, msg_for_ui, 1)
+    v.log_entry('Scrubbing Data', app_holder=app, fieldno=1)
     slide_data_sd = scrubber(slide_data, app)
-    msg_for_ui = 'Data Collection Complete'
-    v.statusupdate(app, msg_for_ui, 1)
+    v.log_entry('Data Collection Complete', app_holder=app, fieldno=1)
 
     return slide_data_sd
 
 
-def scorecard(file, valrpt=False):
+def scorecard(file, config):
+    # Copies config to allow changes
+    report_config = config.copy()
+
+    # Reads data from user-selected sheet and creates dataframe
     exceldata = pd.read_excel(file, sheet_name=0)
-    explainertext = pd.read_excel(file, sheet_name=1)
     df = pd.DataFrame(exceldata)
-    slide_data = OrderedDict()
-    splitdems = False
+
+    # Reads text from excel sheets maintained by software admin
+    explainer_text_1 = pd.read_excel(report_config['additional files'], sheet_name=0)
+
+    try:  # Only used for LTO pages
+        explainer_text_2 = pd.read_excel(report_config['additional files'], sheet_name=1)
+        explainer_text_3 = pd.read_excel(report_config['additional files'], sheet_name=2)
+    except IndexError:
+        pass
 
     # Set up data
-    if valrpt == True:
-        rpt_type = 'value'
-        forepages = 4
-        aftpages = 2
-        rpt_title = 'Value Concept Screener Summary'
-        scorecard_chartcount = 6
-    else:
-        rpt_type = 'lto'
-        forepages = 5
-        aftpages = 8
-        rpt_title ='Menu Concept Screener Summary'
-        scorecard_chartcount = 4
-        explainertext2 = pd.read_excel(file, sheet_name=2)
-
-    df.columns = v.scorecard_dfcols[rpt_type]
+    df.columns = v.scorecard_dfcols[report_config['report type']]
     df.set_index('Concept', inplace=True)
 
-    if len(df.index) > 10:  # For the demographics table
-        aftpages += 1
-        splitdems = True
-        if len(df.index) > 20:
-            aftpages += 1
-    totalpages = forepages + aftpages + len(df.index)
+    for col in df:
+        for idx, val in enumerate(df[col]):
+            if type(val) is not str:
+                df[col][idx] = v.trueround(val, 2)
 
-    # Set up pages
-    for page in range(0, (totalpages)):
-        slide_data[page] = {}  # Creates Page
-        slide_data[page]['page config'] = v.assign_page_config()
+    # Add Placeholder data for columns not in spreadsheet
+    for col in ['Designation', 'Dine-In', 'Takeout', 'Delivery']:
+        df[col] = 0
+
+    # Page counting and dictionary update functions
+    def new_page(page_counter, slide_data, parameters=None):
+        page_counter += 1
+        slide_data[page_counter] = {}
+        slide_data[page_counter]['page config'] = v.assign_page_config()
+        if parameters is not None:
+            for parameter in parameters:
+                slide_data[page_counter]['page config'][parameter] = parameters[parameter]
+
+        return page_counter, slide_data
+
+    # Set up page dictionary
+    slide_data = {}
+    page_counter = 0  # Allows streamlining the content for two similar report structures.
+
+    # Create Cover #########################################################################
+    cover_parameters = {
+        'function': 'cover',
+        'page title': report_config['report title'],
+        'page copy': report_config['table of contents']
+    }
+    page_counter, slide_data = new_page(page_counter, slide_data, cover_parameters)
+
+    if report_config['report type'] == 'lto':
+        # Create Methodology Page ###########################################################
+        intro_title = explainer_text_1.columns[0]
+        text = explainer_text_1[intro_title].values.tolist()
+        text.insert(0, intro_title)
+
+        methodology_parmeters = {
+            'function': 'text',
+            'section tag': 'Methodology and Definitions',
+            'page copy': text
+        }
+
+        page_counter, slide_data = new_page(page_counter, slide_data, methodology_parmeters)
 
 
-    # Collect the data
-    for page in range(0, (totalpages)):
-        page_config = slide_data[page]['page config']
-        if page == 0:  # Works for both LTO and Val LTO reports
-            page_config['page title'] = rpt_title
-            page_config['function'] = 'cover'
-        else:
-            page_config['section tag'] = rpt_title
+        # Create Definitions Page ###########################################################
+        intro_title = explainer_text_2.columns[0]
+        text = explainer_text_2[intro_title].values.tolist()
+        text.insert(0, intro_title)
 
-            # Add big idea, small idea page
-            if (page == 1 and rpt_type == 'value') or (page == 3 and rpt_type == 'lto'):
-                page_config['page copy'] = ['Big Idea', 'Small Idea']
-                page_config['function'] = 'intro'
+        definitions_parameters = {
+            'function': 'text',
+            'section tag': 'Methodology and Definitions',
+            'page copy': text
+        }
 
-            # Adds Descriptor slide #1
-            elif (page == 2 and rpt_type == 'value') or (page == 1 and rpt_type == 'lto'):
-                page_config['function'] = 'text'
-                introtitle = explainertext.columns[0]
-                text = explainertext[introtitle].values.tolist()
-                text.insert(0, introtitle)
-                page_config['page copy'] = text
+        page_counter, slide_data = new_page(page_counter, slide_data, definitions_parameters)
 
-            # If LTO, adds descriptor slide 2
-            elif page == 2 and rpt_type == 'lto':  # Only works for non-value scorecards
-                page_config['function'] = 'text'
-                introtitle = explainertext2.columns[0]
-                text = explainertext2[introtitle].values.tolist()
-                text.insert(0, introtitle)
-                page_config['page copy'] = text
+        # Create FAQ Page ###########################################################
+        intro_title = explainer_text_3.columns[0]
+        text = explainer_text_3[intro_title].values.tolist()
+        text.insert(0, intro_title)
 
-            # Adds benchmarking table to both report types, different data maps
-            elif page == (forepages - 1):  # idx roundup table page
-                page_config['function'] = 'table'
-                page_config['number of tables'] += 1
-                page_config['full page chart'] == True
-                slide_data[page][1] = {}
-                if rpt_type == 'lto':
-                    index_colnames = ['Purchase Intent', 'Uniqueness', 'Draw', 'Craveability']
-                    indexes_df = df[index_colnames].copy()
-                    index_ranges = [[96, 122], [100, 127], [99, 116], [98, 117]]
-                    for col in index_colnames:
-                        indexes_df[col] = (indexes_df[col] * 100).astype(int)
-                    slide_data[page][1]['frame'] = indexes_df
-                elif rpt_type == 'value':
-                    index_colnames = ['Purchase Intent Percentile', 'Value Percentile', 'Draw Percentile',
-                                      'Craveability Percentile', 'Quality Percentile']
-                    slide_data[page][1]['frame'] = df[index_colnames].copy()
-                    index_ranges = None
-                idx_roundup_config = v.assign_chart_config(indexes=index_ranges, intendedchart='TABLE', hasdata=True,
-                                                    banding='cols')
-                idx_roundup_config['*FORCE INT'] = True
-                idx_roundup_config['percent check'] = False
-                slide_data[page][1]['config'] = idx_roundup_config
+        faq_parameters = {
+            'function': 'text',
+            'section tag': 'Methodology and Definitions',
+            'page copy': text
+        }
 
-            # Creates Scorecards
-            elif (totalpages - aftpages) > page >= forepages:
-                idx = (page - forepages)
-                concept = df.index[idx]
-                page_config['page copy'] = [('/tag' + str(df.iloc[idx,0]).upper()),
-                                         ('/h1' + str(df.index[idx])), df.iloc[idx,1]]
+        page_counter, slide_data = new_page(page_counter, slide_data, faq_parameters)
 
-                for count in range(1, (scorecard_chartcount + 1)):
-                    slide_data[page][count] = {}
+        # Create Intro Slide ##################################################################
+        intro_parameters = {
+            'function': 'intro',
+            'section tag': report_config['report title'],
+            'page copy': ['Recommended Action', 'Details and Qualifiers']
+        }
 
-                if rpt_type == 'value':
-                    # Stack Bar Charts
-                    stacked_charts = {
-                        'Value': ['Val 2nd Box', 'Val Top Box', 'Val Top 2 Box'],
-                        'Purchase Intent': ['PI 2nd Box', 'PI Top Box', 'PI Top 2 Box'],
-                    }
-                    for stacked_idx, chart in enumerate(stacked_charts, start=1):
-                        stacked_df = df.loc[[concept], stacked_charts[chart]].copy()
-                        stacked_df.columns = ['2nd Box', 'Top Box', 'Top 2 Box']
-                        stacked_df.index = [chart]
-                        if stacked_idx == 1:
-                            pref_color = 'blueberry'
-                        else:
-                            pref_color = 'mint'
-                        slide_data[page][stacked_idx]['frame'] = stacked_df
-                        slide_data[page][stacked_idx]['config'] = v.assign_chart_config(intendedchart='STACKED COLUMN', topbox=True,
-                                                                       preferredcolor=pref_color, hasdata=True,
-                                                                       legendloc='bottom', note=v.scorecard_footercopy[rpt_type])
+        page_counter, slide_data = new_page(page_counter, slide_data, intro_parameters)
 
-                    # Draw, Craveability, Quality stacked bar
-                    ddf = df.loc[[concept], ['Draw 2nd Box', 'Draw Top Box', 'Draw Top 2 Box']].copy()
-                    cdf = df.loc[[concept], ['CRV 2nd Box', 'CRV Top Box', 'CRV Top 2 Box']].copy()
-                    qdf = df.loc[[concept], ['Quality 2nd Box', 'Quality Top Box', 'Quality Top 2 Box']].copy()
-                    for f in [ddf, cdf, qdf]:
-                        f.columns = ['2nd Box', 'Top Box', 'Top 2 Box']
-                    dcqdf = pd.concat([ddf, cdf, qdf])
-                    dcqdf.index =  ['Draw', 'Craveability', 'Quality']
 
-                    slide_data[page][3]['frame'] = dcqdf
-                    slide_data[page][3]['config'] = v.assign_chart_config(intendedchart='STACKED COLUMN', topbox=True,
-                                                                   preferredcolor='mint', hasdata=True,
-                                                                   legendloc='bottom')
+    elif report_config['report type'] == 'value':
+        # Create Intro Slide ##################################################################
+        intro_parameters = {
+            'function': 'intro',
+            'section tag': report_config['report title'],
+            'page copy': ['Big Idea', 'Small Idea']
+        }
 
-                    # Pie Charts
-                    pie_charts = {
-                        'Good or very good value reasoning': ['Portion', 'Taste', 'Quality', 'Fits Budget'],
-                        'Order behavior': ['Only the offer', 'Additional foods and/or beverages', 'Unsure'],
-                        'Repeat trial': ['Once', 'Some visits', 'Most visits', 'Every visit']
-                    }
+        page_counter, slide_data = new_page(page_counter, slide_data, intro_parameters)
 
-                    for pie_idx, pie in enumerate(pie_charts,start=4):
-                        chart_title = pie
-                        pie_df = df.loc[[concept], pie_charts[pie]].copy()
-                        if pie_idx == 4:
-                            pie_df['Other'] = 1 - pie_df.sum(axis=1)
-                            pie_df.index = ['Base']
-                            pref_color = 'blueberry'
-                        else:
-                            pref_color = 'mint'
-                        pie_df_t = pie_df.transpose()
-                        slide_data[page][pie_idx]['frame'] = pie_df_t
-                        tempconfig = v.assign_chart_config(intendedchart='PIE', preferredcolor=pref_color,
-                                                    title=chart_title, hasdata=True)
-                        slide_data[page][pie_idx]['config'] = tempconfig
+        # Create Explainer text page ##################################################################
+        intro_title = explainer_text_1.columns[0]
+        text = explainer_text_1[intro_title].values.tolist()
+        text.insert(0, intro_title)
 
-                    # Percenticle Indexes
-                    callout_sz = [0.42, 0.3]
-                    cols = ['Value Percentile', 'Purchase Intent Percentile', 'Draw Percentile',
-                            'Craveability Percentile', 'Quality Percentile']
-                    left_vals = [4.85, 8.02, 10.45, 11.33, 12.07]
-                    page_config['callouts']['shape'] = [9.15, 0.3, 3.71, 1, 'white', 'PERCENTILES', 'l', False]
-                    for left_val, col in zip(left_vals, cols):
-                        page_config['callouts'][str(cols.index(col))] = callout_sz + [left_val, 1, None,
-                                                                                   str(df.at[concept, col]),
-                                                                                    'c', True]
+        explainer_parameters = {
+            'function': 'text',
+            'section tag': report_config['report title'],
+            'page copy': text
+        }
 
-                elif rpt_type == 'lto':
-                    # PI, UNI, DRAW, CRV Stacked Bar
-                    pidf = df.loc[[concept], ['PI 2nd Box', 'PI Top Box', 'PI Top 2 Box']].copy()
-                    udf = df.loc[[concept], ['Uniqueness 2nd Box', 'Uniqueness Top Box', 'Uniqueness Top 2 Box']].copy()
-                    ddf = df.loc[[concept], ['Draw 2nd Box', 'Draw Top Box', 'Draw Top 2 Box']].copy()
-                    cdf = df.loc[[concept], ['CRV 2nd Box', 'CRV Top Box', 'CRV Top 2 Box']].copy()
-                    for f in [pidf, udf, ddf, cdf]:
-                        f.columns = ['2nd Box', 'Top Box', 'Top 2 Box']
-                    pudcdf = pd.concat([pidf, udf, ddf, cdf])
-                    pudcdf.index = ['Purchase Intent', 'Uniqueness', 'Draw', 'Craveability']
-                    slide_data[page][1]['frame'] = pudcdf
-                    slide_data[page][1]['config'] = v.assign_chart_config(intendedchart='STACKED COLUMN', topbox=True,
-                                                                   legendloc='bottom', hasdata=True)
+        page_counter, slide_data = new_page(page_counter, slide_data, explainer_parameters)
 
-                    # Willingness to pay stat
-                    slide_data[page][2]['frame'] = [str(f"${df.at[concept, 'Median willingness to pay']:.2f}"),
-                                                    'Median willingness to pay']
-                    slide_data[page][2]['config'] = v.assign_chart_config(intendedchart='STAT', hasdata=True)
-                    page_config['has stat'] = True
+    # Create Benchmarking Table for both report types ##################################################################
+    benchmarking_parameters = {
+        'function': 'table',
+        'section tag': 'Concept Scorecards and Benchmarking',
+        'number of tables': 1,
+        'full page chart': True
+    }
 
-                    # Seasonality Pie
-                    chart_title = 'Seasonality (Would purchase ______ during the year)'
-                    sdf = df.loc[[concept], ['Once', 'Certain times', 'A few times']].copy()
-                    sdf_t = sdf.transpose()
-                    slide_data[page][3]['frame'] = sdf_t
-                    slide_data[page][3]['config'] = v.assign_chart_config(intendedchart='PIE', title=chart_title, hasdata=True)
+    page_counter, slide_data = new_page(page_counter, slide_data, benchmarking_parameters)
 
-                    # Repeat Trial Pie
-                    chart_title = 'Repeat trial'
-                    rtdf = df.loc[[concept], ['Once', 'Some Visits', 'Most Visits', 'Every Visit']].copy()
-                    rtdf_t = rtdf.transpose()
-                    slide_data[page][4]['frame'] = rtdf_t
-                    slide_data[page][4]['config'] = v.assign_chart_config(intendedchart='PIE', title=chart_title, hasdata=True)
+    indexes_df = df[report_config['index column names']].copy()
+    chart_title = 'CONCEPT BENCHMARKING'
 
-                    # Percenticle Indexes
-                    index_ranges = {1: [1.22, 0.96], 2: [1.27, 1.00], 3: [1.16, 0.99], 4: [1.17, 0.98]}
-                    callout_sz = [0.5, 0.3]
-                    cols = ['Purchase Intent', 'Uniqueness', 'Draw', 'Craveability']
-                    left_vals = [4.7, 6.9, 9.06, 11.27]
-                    page_config['callouts']['shape'] = [9.15, 0.3, 3.71, 1, 'white', 'INDEX', 'l', False, 'default']
-                    for key_index, (left_val, col) in enumerate(zip(left_vals, cols), 1):
-                        if df.at[concept, col] > index_ranges[key_index][0]:
-                            text_color = 'mint'
-                        elif df.at[concept, col] < index_ranges[key_index][1]:
-                            text_color = 'mandarin'
-                        else:
-                            text_color = 'default'
-                        page_config['callouts'][str(cols.index(col))] = callout_sz + [left_val, 1, None,
-                                                                                   str(indexes_df.at[concept, col]),
-                                                                                   'c', True, text_color]
-            elif page == (totalpages - aftpages + 1):
-                # demographics table(s)
-                page_config['function'] = 'table and text'
-                page_config['number of tables'] += 1
-                demogsdf = df[['Male', 'Female', 'Gen Z', 'Millennials', 'Gen X', 'Baby Boomers',
-                                                    '<$45K', '$45K-$99K', '$100K+', 'Black/African American',
-                                                    'White', 'Hispanic/Latino']].copy()
-                demogsdf_t = demogsdf.transpose()
-                concepts = list(demogsdf_t.columns)
+    if report_config['report type'] == 'lto':
+        for col in report_config['index column names']:
+            indexes_df[col] = (indexes_df[col] * 100).astype(int)
+        note = ['*Index score based on top-box response within daypart-mealpart']
+    else:
+        note = None
 
-                for idx, concept in enumerate(concepts):
-                    concepts[idx] = '/h2' +  str(idx + 1) + '. ' + concept
+    idx_roundup_config = v.assign_chart_config(indexes=report_config['index ranges'], intended_chart='TABLE',
+                                               has_data=True, banding='cols', note=note, force_int=True,
+                                               title=chart_title)
+    slide_data[page_counter][1] = {'frame': indexes_df, 'config': idx_roundup_config}
 
-                demogsdf_t.columns = list(range(1, len(concepts) + 1))
-                maxvals = demogsdf_t.max(axis=1).values.tolist()
+    # Create Scorecards
+    for concept_idx, concept in enumerate(df.index):
 
-                df_lst, concept_lst = [], []
-                col_len = len(demogsdf_t.columns)
-                if 21 > col_len > 10:
-                    divide_col_len = int((col_len / 2))
-                elif col_len > 20:
-                    divide_col_len = int((col_len / 3))
+        scorecard_parameters = {
+            'section tag': 'Concept Scorecards and Benchmarking',
+            'number of charts': report_config['scorecard chart count'],
+            'page copy': [('/tag' + str(df.iloc[concept_idx,0]).upper()),
+                          ('/h1' + str(df.index[concept_idx])), df.iloc[concept_idx,1]]
+        }
+
+        page_counter, slide_data = new_page(page_counter, slide_data, scorecard_parameters)
+
+        # Set up charts
+        for chart in range(1, (report_config['scorecard chart count'] + 1)):
+            slide_data[page_counter][chart] = {}
+
+        if report_config['report type'] == 'lto':
+            note = ['/bDefinitions, 2nd Box and Top Box respectively:',
+                    '/bPurchase Intent#: Likely or very likely to purchase',
+                    '/bUniqueness#: Unique and very unique',
+                    '/bDraw#: Likely or much more likely to order from',
+                    '/bCraveability#: Think I would crave and would definitely crave']
+
+            # PI, UNI, DRAW, CRV Stacked Bar
+            pidf = df.loc[[concept], ['PI 2nd Box', 'PI Top Box', 'PI Top 2 Box']].copy()
+            udf = df.loc[[concept], ['Uniqueness 2nd Box', 'Uniqueness Top Box', 'Uniqueness Top 2 Box']].copy()
+            ddf = df.loc[[concept], ['Draw 2nd Box', 'Draw Top Box', 'Draw Top 2 Box']].copy()
+            cdf = df.loc[[concept], ['CRV 2nd Box', 'CRV Top Box', 'CRV Top 2 Box']].copy()
+
+            for f in [pidf, udf, ddf, cdf]:
+                f.columns = ['2nd Box', 'Top Box', 'Top 2 Box']
+
+            pudcdf = pd.concat([pidf, udf, ddf, cdf])
+            pudcdf.index = ['Purchase Intent', 'Uniqueness', 'Draw', 'Craveability']
+            slide_data[page_counter][1]['frame'] = pudcdf
+            slide_data[page_counter][1]['config'] = v.assign_chart_config(intended_chart='STACKED COLUMN', top_box=True,
+                                                                  legend_location='bottom', has_data=True, note=note)
+
+            # Willingness to pay stat
+            slide_data[page_counter][2]['frame'] = [str(f"${df.at[concept, 'Median willingness to pay']:.2f}"),
+                                            'Median willingness to pay']
+            slide_data[page_counter][2]['config'] = v.assign_chart_config(intended_chart='STAT', has_data=True)
+            slide_data[page_counter]['page config']['has stat'] = True
+
+            # Seasonality Pie
+            chart_title = 'Seasonality (Would purchase ______ during the year)'
+            sdf = df.loc[[concept], ['Anytime', 'Certain times', 'A few times']].copy()
+            sdf_t = sdf.transpose()
+            slide_data[page_counter][3]['frame'] = sdf_t
+            slide_data[page_counter][3]['config'] = v.assign_chart_config(intended_chart='PIE', title=chart_title,
+                                                                  has_data=True)
+            # Repeat Trial Pie
+            chart_title = 'Repeat trial'
+            rtdf = df.loc[[concept], ['Once', 'Some Visits', 'Most Visits', 'Every Visit']].copy()
+            rtdf_t = rtdf.transpose()
+            slide_data[page_counter][4]['frame'] = rtdf_t
+            slide_data[page_counter][4]['config'] = v.assign_chart_config(intended_chart='PIE', title=chart_title,
+                                                                  has_data=True)
+
+            # Percenticle Indexes
+            index_ranges = {1: [1.22, 0.96], 2: [1.27, 1.00], 3: [1.16, 0.99], 4: [1.17, 0.98]}
+            callout_sz = [0.5, 0.3]
+            cols = ['Purchase Intent', 'Uniqueness', 'Draw', 'Craveability']
+            left_vals = [4.7, 6.9, 9.06, 11.27]
+            create_shape = [9.15, 0.3, 3.71, 1, 'white', 'INDEX', 'l', 'default']
+            slide_data[page_counter]['page config']['callouts']['shape'] = create_shape
+            for key_index, (left_val, col) in enumerate(zip(left_vals, cols), 1):
+                if df.at[concept, col] > index_ranges[key_index][0]:
+                    text_color = 'mint'
+                elif df.at[concept, col] < index_ranges[key_index][1]:
+                    text_color = 'mandarin'
                 else:
-                    divide_col_len = col_len
-                for col in range(0, col_len, divide_col_len):
-                    df_lst.append(demogsdf_t.iloc[:, col:col + divide_col_len])
-                    concept_lst.append(concepts[col:col + divide_col_len])
+                    text_color = 'default'
+                callout = callout_sz + [left_val, 1, None, str(indexes_df.at[concept, col]), 'c', text_color]
+                slide_data[page_counter]['page config']['callouts'][str(cols.index(col))] = callout
 
-                page_mod = 0  # Creates new page for split table if needed
-                for frame_idx in df_lst:
-                    if splitdems == True and page_mod > 0:
-                        slide_data[(page + page_mod)]['page config'] = slide_data[page]['page config'].copy()
-                    sd = slide_data[(page + page_mod)]
-                    sd['page config']['page copy'] = concept_lst[page_mod]
-                    sd[1] = {
-                        'frame': frame_idx,
-                        'config': v.assign_chart_config(maxvals=maxvals, intendedchart='TABLE', hasdata=True,
-                                                     banding='cols', highlight=True)
-                    }
-                    page_mod += 1
+        elif report_config['report type'] == 'value':
+            # Stack Bar Charts
+            stacked_charts = {
+                'Value': ['Val 2nd Box', 'Val Top Box', 'Val Top 2 Box'],
+                'Purchase Intent': ['PI 2nd Box', 'PI Top Box', 'PI Top 2 Box'],
+            }
+            for stacked_idx, chart in enumerate(stacked_charts, start=1):
+                stacked_df = df.loc[[concept], stacked_charts[chart]].copy()
+                stacked_df.columns = ['2nd Box', 'Top Box', 'Top 2 Box']
+                stacked_df.index = [chart]
+                if stacked_idx == 1:
+                    pref_color = 'blueberry'
+                else:
+                    pref_color = 'mint'
+                slide_data[page_counter][stacked_idx]['frame'] = stacked_df
+                slide_data[page_counter][stacked_idx]['config'] = v.assign_chart_config(intended_chart='STACKED COLUMN',
+                                                                                top_box=True,
+                                                                                preferred_color=pref_color,
+                                                                                has_data=True,
+                                                                                legend_location='bottom',
+                                                                                note=v.scorecard_footercopy[report_config['report type']])
 
-            elif page == (totalpages - aftpages):
-                page_config['number of charts'] = 1
-                mock_df = pd.DataFrame.from_dict(v.mock_chart)
-                mock_df.set_index('categories', inplace=True)
-                sd = slide_data[page]
-                sd[1] = {}
-                sd[1]['frame'] = mock_df
-                sd[1]['config'] = v.assign_chart_config(intendedchart='COLUMN', title='BRAND FIT BY ITEM', hasdata=True,
-                                                 forceint=True, percentcheck=False)
+            # Draw, Craveability, Quality stacked bar
+            ddf = df.loc[[concept], ['Draw 2nd Box', 'Draw Top Box', 'Draw Top 2 Box']].copy()
+            cdf = df.loc[[concept], ['CRV 2nd Box', 'CRV Top Box', 'CRV Top 2 Box']].copy()
+            qdf = df.loc[[concept], ['Quality 2nd Box', 'Quality Top Box', 'Quality Top 2 Box']].copy()
+            for f in [ddf, cdf, qdf]:
+                f.columns = ['2nd Box', 'Top Box', 'Top 2 Box']
+            dcqdf = pd.concat([ddf, cdf, qdf])
+            dcqdf.index = ['Draw', 'Craveability', 'Quality']
 
-            elif page == (totalpages - 1):  # Last page, -1 to compensate for zero-idxing
-                page_config['function'] = 'endwrapper'
-                page_config['page copy'] = ["So. What's Next?", "Need some more LTO guidance? Reach out to our experts."]
-                sd = slide_data[page]
+            slide_data[page_counter][3]['frame'] = dcqdf
+            slide_data[page_counter][3]['config'] = v.assign_chart_config(intended_chart='STACKED COLUMN', top_box=True,
+                                                                  preferred_color='mint', has_data=True,
+                                                                  legend_location='bottom')
 
-                for chart in [1, 2, 3, 4]:
-                    sd[chart] = {}
-                    if chart < 3:
-                        ee = 'lh'
-                    else:
-                        ee = 'jc'
-                    if (chart % 2) == 0:
-                        sd[chart]['frame'] = v.employees[ee]
-                        sd[chart]['config'] = v.assign_chart_config(intendedchart='STAT')
-                    else:
-                        sd[chart]['frame'] = 'templates/import_resources/headshots/' + ee + '.jpg'
-                        sd[chart]['config'] = v.assign_chart_config(intendedchart='PICTURE')
+            # Pie Charts
+            pie_charts = {
+                'Good or very good value reasoning': ['Portion', 'Taste', 'Quality', 'Fits Budget'],
+                'Order behavior': ['Only the offer', 'Additional foods and/or beverages', 'Unsure'],
+                'Repeat trial': ['Once', 'Some visits', 'Most visits', 'Every visit']
+            }
+
+            for pie_idx, pie in enumerate(pie_charts, start=4):
+                chart_title = pie
+                pie_df = df.loc[[concept], pie_charts[pie]].copy()
+                if pie_idx == 4:
+                    pie_df['Other'] = 1 - pie_df.sum(axis=1)
+                    pie_df.index = ['Base']
+                    pref_color = 'blueberry'
+                else:
+                    pref_color = 'mint'
+                pie_df_t = pie_df.transpose()
+                slide_data[page_counter][pie_idx]['frame'] = pie_df_t
+                tempconfig = v.assign_chart_config(intended_chart='PIE', preferred_color=pref_color,
+                                                   title=chart_title, has_data=True)
+                slide_data[page_counter][pie_idx]['config'] = tempconfig
+
+            # Percenticle Indexes
+            callout_sz = [0.42, 0.3]
+            cols = ['Value Percentile', 'Purchase Intent Percentile', 'Draw Percentile',
+                    'Craveability Percentile', 'Quality Percentile']
+            left_vals = [4.85, 8.02, 10.45, 11.33, 12.07]
+            slide_data[page_counter]['page config']['callouts']['shape'] = [9.15, 0.3, 3.71, 1, 'white', 'PERCENTILES', 'l', 'default']
+            for left_val, col in zip(left_vals, cols):
+                slide_data[page_counter]['page config']['callouts'][str(cols.index(col))] = callout_sz + [left_val, 1, None,
+                                                                              str(df.at[concept, col]),
+                                                                              'c', 'default']
+
+    # Create Brand Fit Placeholder for LTOs
+    brand_fit_parameters = {
+        'function': 'full page chart',
+        'section tag': 'Concept Scorecards and Benchmarking',
+        'number of charts': 1,
+        'callouts': {
+            'shape': [10.5, 0.3, 0.5, 6.36, 'white', 'INDEX', 'l', 'default'],
+            1: [0.42, 0.3, 2.2, 6.36, None, str(90), 'c', 'default']
+        }
+    }
+
+    page_counter, slide_data = new_page(page_counter, slide_data, brand_fit_parameters)
+    mock_df = pd.DataFrame.from_dict(v.mock_chart)
+    mock_df.set_index('categories', inplace=True)
+    slide_data[page_counter][1] = {}
+    slide_data[page_counter][1]['frame'] = mock_df
+    slide_data[page_counter][1]['config'] = v.assign_chart_config(intended_chart='STACKED COLUMN',
+                                                                  title='BRAND X BRAND FIT BY CONCEPT',
+                                                                  has_data=True, top_box=True,
+                                                                  note=['Index based on top-box response'])
+
+    # Create Off-Premise Potential Placeholder for LTOs
+    if report_config['report type'] == 'lto':
+        off_premise_parameters = {
+            'function': 'table',
+            'section tag': 'Concept Scorecards and Benchmarking',
+            'number of tables': 1,
+            'full page chart': True
+        }
+
+        page_counter, slide_data = new_page(page_counter, slide_data, off_premise_parameters)
+
+        off_premise_df = df[report_config['off-premise potential names']].copy()
+        chart_title = 'OFF-PREMISE POTENTIAL'
+        note = ['Q: How would you eat this item? Select all that apply.',
+                'Base: potential purchasers (top 2 box purchase intent)']
+
+        off_premise_config = v.assign_chart_config(intended_chart='TABLE', has_data=True, banding='rows', note=note,
+                                                   title=chart_title)
+        slide_data[page_counter][1] = {'frame': off_premise_df, 'config': off_premise_config}
+
+    else:
+        pass
+
+    # Create Demographics Table(s)
+    demogsdf = df[['Male', 'Female', 'Gen Z', 'Millennials', 'Gen X', 'Baby Boomers',
+                   '<$45K', '$45K-$99K', '$100K+', 'Black/African American',
+                   'White', 'Hispanic/Latino']].copy()
+
+    demogsdf_t = demogsdf.transpose()
+    concepts = list(demogsdf_t.columns)
+    chart_title = 'DEMOGRAPHICS OF POTENTIAL PURCHASERS'
+    note = ['Potential purchasers=top 2 box purchase intent']
+
+    for idx, concept in enumerate(concepts):
+        concepts[idx] = '/h2' + str(idx + 1) + '. ' + concept
+
+    demogsdf_t.columns = list(range(1, len(concepts) + 1))
+    maxvals = demogsdf_t.max(axis=1).values.tolist()
+
+    df_lst, concept_lst = [], []
+    col_len = len(demogsdf_t.columns)
+    if 21 > col_len > 10:
+        divide_col_len = int((col_len / 2))
+    elif col_len > 20:
+        divide_col_len = int((col_len / 3))
+    else:
+        divide_col_len = col_len
+
+    for col in range(0, col_len, divide_col_len):
+        df_lst.append(demogsdf_t.iloc[:, col:col + divide_col_len])
+        concept_lst.append(concepts[col:col + divide_col_len])
+
+    for frame_idx, frame in enumerate(df_lst):
+        page_counter, slide_data = new_page(page_counter, slide_data)
+        slide_data[page_counter]['page config'] = v.assign_page_config(function='table and text')
+        slide_data[page_counter]['page config']['section tag'] = 'Concept Scorecards and Benchmarking'
+        slide_data[page_counter]['page config']['number of tables'] += 1
+        slide_data[page_counter]['page config']['page copy'] = concept_lst[frame_idx]
+        slide_data[page_counter][1] = {
+            'frame': frame,
+            'config': v.assign_chart_config(max_values=maxvals, intended_chart='TABLE', has_data=True,
+                                            banding='cols', highlight=True, title=chart_title, note=note)
+        }
+
+    # Create last Page
+    page_counter, slide_data = new_page(page_counter, slide_data)
+    slide_data[page_counter]['page config'] = v.assign_page_config(function='end wrapper')
+    slide_data[page_counter]['page config']['page copy'] = ["So. What's Next?",
+                                                            "Need some more LTO guidance? Reach out to our experts."]
+    slide_data[page_counter]['page config']['section tag'] = 'About Technomic'
+
+    for chart in [1, 2, 3, 4]:
+        slide_data[page_counter][chart] = {}
+        if chart < 3:
+            ee = 'lh'
+        else:
+            ee = 'jc'
+        if (chart % 2) == 0:
+            slide_data[page_counter][chart]['frame'] = v.employees[ee]
+            slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='STAT')
+        else:
+            slide_data[page_counter][chart]['frame'] = 'templates/import_resources/headshots/' + ee + '.jpg'
+            slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='PICTURE')
+
+
     slide_data_sd = scrubber(slide_data)
 
     return slide_data_sd
 
 
-def dtv_reader(file):
+def dtv_reader(file, entertainment=None):
     exceldata = pd.read_excel(file, sheet_name=0)
     df = pd.DataFrame(exceldata)
     slide_data = OrderedDict()
     df.columns = v.scorecard_dfcols['dtv']
     df.set_index(['Account', 'Competitor No.'], inplace=True)
 
-    title_months = v.monthlst(3, ((datetime.now().month) - 1))
+    month_variant = 2  # May need to change based on report data date
+
+    title_months = v.month_lst(3, ((datetime.now().month) - month_variant))
     reportdate = str(title_months[-1]) + ' ' + str(datetime.now().year)
+
+    # If additional values are provided, a third layout per account will be created
+    layout_list = [1, 2]
+    if entertainment is not None:
+        layout_list.append(3)
 
     page = 1
     for account, account_df in df.groupby(level=0):
-        for layout in [1, 2, 3]:
+        for layout in layout_list:
             slide_data[page] = {}
             slide_data[page]['page config'] = v.assign_page_config()
             page_config = slide_data[page]['page config']
@@ -670,20 +785,24 @@ def dtv_reader(file):
                     f = '(%s)' % round(growthtxt[idx], 1)
                     growthdict[idx] = [(str(currval) + '% ' + f)]
 
-                # Creat chart title
-                sharetitle = 'SALES MARKET SHARE\n'
+                # Create chart title
+                share_title = 'SALES MARKET SHARE\n'
                 for month in title_months:
                     if month != title_months[-1]:
-                        sharetitle += (str(month) + '-')
-                sharetitle += (' ' + str(datetime.now().year) + ' VS. ' + str(datetime.now().year - 1))
+                        share_title += (str(month) + '-')
+                share_title += (' ' + str(datetime.now().year) + ' VS. ' + str(datetime.now().year - 1))
 
-                notetxt = '* Arrows indicate change from July YTD 2020 to August 2020 YTD'
+                note_txt = [
+                    '* Percent shown reflect results from September 2020 YTD',
+                    'Arrows indicate change from August YTD 2020 to September 2020 YTD'
+                ]
 
                 slide_data[page][1]['frame'] = sms_df_t
-                slide_data[page][1]['config'] = v.assign_chart_config(intendedchart='100% STACKED BAR', legendloc='bottom',
-                                                               title=sharetitle, cataxis=False, hasdata=True,
-                                                               pct_dec_places=1, labeltxt=growthdict,
-                                                               note=[notetxt])
+                slide_data[page][1]['config'] = v.assign_chart_config(intended_chart='100% STACKED BAR',
+                                                                      legend_location='bottom', title=share_title,
+                                                                      category_axis=False, has_data=True,
+                                                                      pct_dec_places=1, label_txt=growthdict,
+                                                                      note=note_txt)
 
                 # YOY Tables
                 table_titles = {
@@ -695,8 +814,8 @@ def dtv_reader(file):
                     table_df = account_df.loc[:, table_titles[table]].copy()
                     table_df.set_index(['Competitor Brand'], inplace=True)
                     slide_data[page][t_idx]['frame'] = table_df
-                    slide_data[page][t_idx]['config'] = v.assign_chart_config(intendedchart='TABLE', hasdata=True, growth=True,
-                                                                   pct_dec_places=1)
+                    slide_data[page][t_idx]['config'] = v.assign_chart_config(intended_chart='TABLE', has_data=True, growth=True,
+                                                                              pct_dec_places=1)
 
                 # Column Charts
                 column_charts = {
@@ -738,18 +857,24 @@ def dtv_reader(file):
                             ch_dict[s_idx].append((growthval + u"\u000A" + str(ch_val) + '%'))
 
                     slide_data[page][ch_idx]['frame'] = ch_df
-                    slide_data[page][ch_idx]['config'] = v.assign_chart_config(intendedchart='COLUMN', legendloc='bottom',
-                                                                   title=chart, hasdata=True, labeltxt=ch_dict,
-                                                                   preferredcolor=column_charts[chart]['color'])
+                    slide_data[page][ch_idx]['config'] = v.assign_chart_config(intended_chart='COLUMN',
+                                                                               legend_location='bottom',
+                                                                               title=chart, has_data=True,
+                                                                               label_txt=ch_dict,
+                                                                               preferred_color=column_charts[chart]['color'])
 
                 # Chart Titles as callouts
+                # Width, Height, Left, Top,
                 callout_sz = [2.71, .22]
                 cols = ['YEAR-OVER-YEAR SALES', 'YEAR-OVER-YEAR TRAFFIC']
                 left_vals = [3.62, 8.44]
                 for left_val, col in zip(left_vals, cols):
-                    page_config['callouts'][str(cols.index(col))] = callout_sz + [left_val, 1.19, None, col, 'l', True]
+                    page_config['callouts'][str(cols.index(col))] = callout_sz + [left_val, 1.19, None, col, 'l', 'default']
 
             elif layout == 2: # Line Graph Page
+                page_config['number of charts'] = 2
+                page_config['function'] = 'two charts, no text'
+
                 line_graphs = {
                     'sales': {
                         'cols':['Competitor Brand', 'SM1','SM2','SM3','SM4','SM5','SM6','SM7'],
@@ -764,25 +889,31 @@ def dtv_reader(file):
                 for g_idx, graph in enumerate(line_graphs, 1):
                     slide_data[page][g_idx] = {}
                     g_df = account_df.loc[:, line_graphs[graph]['cols']].copy()
-                    g_df.columns = ['Competitor Brand'] + v.monthlst(7, ((datetime.now().month) - 1), (datetime.now().year))
+                    g_df.columns = ['Competitor Brand'] + v.month_lst(7, ((datetime.now().month) - month_variant), (datetime.now().year))
                     g_df.set_index(['Competitor Brand'], inplace=True)
                     g_df_t = g_df.transpose()
                     slide_data[page][g_idx]['frame'] = g_df_t
-                    slide_data[page][g_idx]['config'] = v.assign_chart_config(intendedchart='LINE', legendloc=None,
-                                                                        title=line_graphs[graph]['title'], hasdata=True,
-                                                                       datalabels=False)
+                    slide_data[page][g_idx]['config'] = v.assign_chart_config(intended_chart='LINE', legend_location=None,
+                                                                              title=line_graphs[graph]['title'], has_data=True,
+                                                                              data_labels=False, pct_dec_places=1)
 
-            elif layout == 3:  # Third page of account
+            elif layout == 3:  # Third page of account only appears if values provided in app
                 page_config['number of charts'] = 0
                 page_config['number of tables'] = 1
                 page_config['function'] = 'table and text'
 
                 # Provides Entertainment Body Text (Segment level only)
-                bodycopy = ['/b/h2Provides Video/TV Entertainment', 'Top Box', '']
-                tv_df = df.loc[['Total'], ['Competitor Brand', 'Provides TV/Entertainment']].copy()
-                tv_df.set_index(['Competitor Brand'], inplace=True)
+                entertainment_values = {
+                    'segment': ['Quick Service', 'Fast Casual', 'Midscale', 'Casual Dining'],
+                    'Provides TV/Entertainment': entertainment
+                }
+
+                bodycopy = ['/b/h2Provides Video/TV Entertainment', '/h2Top Box', '']
+                tv_df = pd.DataFrame.from_dict(entertainment_values)
+                tv_df.set_index(['segment'], inplace=True)
+
                 for idx, competitor in enumerate(tv_df.index):
-                    val_copy = str(round((df.iloc[idx, 1] * 100), 1))
+                    val_copy = str(tv_df.iloc[idx, 0])
                     bodycopy.append(('/h1' + val_copy + '%'))
                     bodycopy.append(('/h2' + competitor))
                     bodycopy.append((''))
@@ -798,6 +929,10 @@ def dtv_reader(file):
                                       'Chg Appropriateness for the variety of occasions']
                 }
 
+                note_txt = [
+                    '/mintGreen# = increased from year-end Q2 2020 to year-end Q3 2020',
+                    '/mandarinOrange# = decreased from year-end Q2 2020 to year-end Q3 2020'
+                ]
 
                 cm_df = account_df.loc[:, cmt['col_lst']].copy()
                 chg_cm_df = account_df.loc[:, cmt['chg_col_lst']].copy()
@@ -806,8 +941,9 @@ def dtv_reader(file):
                 chg_cm_df_t = chg_cm_df.transpose()
                 cm_df_t = cm_df.transpose()
                 slide_data[page][1]['frame'] = cm_df_t
-                slide_data[page][1]['config'] = v.assign_chart_config(intendedchart='TABLE', hasdata=True, indexes=chg_cm_df_t,
-                                                               pct_dec_places=1)
+                slide_data[page][1]['config'] = v.assign_chart_config(intended_chart='TABLE', has_data=True,
+                                                                      indexes=chg_cm_df_t,
+                                                                      pct_dec_places=1, note=note_txt)
 
             page += 1
 

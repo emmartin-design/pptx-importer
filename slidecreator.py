@@ -1,32 +1,82 @@
 from pptx.util import Inches, Pt
 from pptx import Presentation
-from datetime import datetime, date, time
-from appJar import gui
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.dml.color import RGBColor
-from pptx.enum.chart import XL_LEGEND_POSITION
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.chart.data import ChartData
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.slide import SlideLayout
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import nsdecls
-from pptx.oxml.xmlchemy import OxmlElement
-import pandas as pd
 import logging
+
+# Internal modules
 import chartcreator as chc
-import excelreader as er
 import variables as v
 
 
+def longestval(lst):
+    longest_val = lst[0]
+    shortest_val = lst[0]
+    for val in lst:
+        if len(val) >= len(longest_val):
+            longest_val = val
+        elif len(val) <= len(shortest_val):
+            shortest_val = val
+    return longest_val, shortest_val
+
 
 def notesinsert(slide, notestext):
-    try:
-        notes_slide = slide.notes_slide
-        text_frame = notes_slide.notes_text_frame
-        text_frame.text = str(notestext)
-    except:
-        pass
+    text_frame = slide.notes_slide.notes_text_frame
+    text_frame.text = str(notestext)
+
+
+def scrub_formatting(text):
+    scrubbedtext = str(text)
+    for text_format in ['/b', '/i', '/h1', '/h2', '/h3', '/h4', '/h5', '/h6', '/h7',
+                        '/q', '/tag', '#', '/mint', '/mandarin']:
+        scrubbedtext = scrubbedtext.replace(text_format, '', -1)
+    return scrubbedtext
+
+
+def text_formatting(text, text_unit):
+    if '/b' in text:
+        text_unit.font.bold = True
+    if '/tag' in text:
+        text_unit.font.color.theme_color = MSO_THEME_COLOR.BACKGROUND_2
+        text_unit.font.color.brightness = -0.5
+    for level in ['/h1', '/h2', '/h3', '/h4', '/h5', '/h6', '/h7']:
+        if level in text:
+            text_unit.level = int(level[-1]) - 1
+    if '/mandarin' in text:
+        text_unit.font.color.theme_color = v.brand_colors['mandarin']
+    if '/mint' in text:
+        text_unit.font.color.theme_color = v.brand_colors['mint']
+
+
+def insert_text(textlst, text_frame, one_level=False):
+    for idx, para in enumerate(textlst):
+        try:
+            p = text_frame.paragraphs[idx]
+        except IndexError:
+            p = text_frame.add_paragraph()
+
+        p.level = 0
+        if not one_level:
+            if idx > 0 or '/tag' in para:
+                p.level = 1
+
+        # Command-based formatting
+        if '#' in para:
+            # Break para into parts for formatting
+            para_runs = para.split('#')
+            for r in para_runs:
+                run = p.add_run()
+                text_formatting(text=r, text_unit=run)
+                run.text = scrub_formatting(r)
+        else:
+            text_formatting(text=para, text_unit=p)
+            p.text = scrub_formatting(para)
 
 
 def preflightaddshape(slide, msg, lvl, boxplacement):
@@ -55,9 +105,9 @@ def preflight(slide, el):  # Inserts applicable error messages as boxes
             else:
                 boxplacement = 1.0
                 for error in chart:
-                    if error in v.errordict:
-                        preflightaddshape(slide, v.errordict[error][0], v.errordict[error][1], boxplacement)
-                        logging.warning(v.errordict[error][0])
+                    if error in v.error_dict:
+                        preflightaddshape(slide, v.error_dict[error][0], v.error_dict[error][1], boxplacement)
+                        logging.warning(v.error_dict[error][0])
                     boxplacement += 0.5
 
 
@@ -94,7 +144,7 @@ def add_gradient_legend(slide):
             p.alignment = PP_ALIGN.RIGHT
 
 
-def create_footer(slide, footercopy, directionalcheck=False):
+def create_footer(slide, footercopy):
     footer = None
     pageno = None
     for shape in slide.placeholders:
@@ -115,13 +165,12 @@ def create_footer(slide, footercopy, directionalcheck=False):
     fld = parse_xml(fld_xml)
     footer_pageno.append(fld)
     footer_a = 'Note: Due to small base, data is directional'
-    paragraph_strs = footercopy
-    if directionalcheck is True:
-        paragraph_strs.append(footer_a)
 
-    for para_str in paragraph_strs:
-        p = footer_text_frame.add_paragraph()
-        p.text = para_str.replace("'", "")
+    for para_idx, para in enumerate(footercopy):
+        new_para = para.replace("'", "", -1)
+        footercopy[para_idx] = new_para
+
+    insert_text(footercopy, footer_text_frame, one_level=True)
 
 
 def footer_patch(self):
@@ -132,55 +181,62 @@ def footer_patch(self):
 SlideLayout.iter_cloneable_placeholders = footer_patch  # replaces module code with redefined latent placeholder code
 
 
-def layout_chooser(chartcount, tablecount, has_stat, templatedata, slidefunction = None):  # Doesn't work currently. Tweak
-    chosen = None
-    layoutholder = None
-    for layout in templatedata:
-        l = templatedata[layout]
-        if slidefunction != None:  # Primarily used for non-general reports
-            if slidefunction == 'cover':
-                if 'TITLE 0' in l:
-                    chosen, layoutholder = l, layout
-            elif slidefunction == 'intro':
-                if l['bodycount'] == 6:
-                    chosen, layoutholder = l, layout
-            elif slidefunction == 'text':
-                if l['bodycount'] == 2 and l['titlecount'] == l['chartcount'] == l['tablecount'] == 0:
-                    chosen, layoutholder = l, layout
-            elif slidefunction == 'table and text':
-                if l['bodycount'] == 2 and l['chartcount'] == 0 and l['tablecount'] == 1:
-                    chosen, layoutholder = l, layout
-            elif slidefunction == 'table':
-                if l['bodycount'] == 1 and l['chartcount'] == 0 and l['tablecount'] == 1:
-                    chosen, layoutholder = l, layout
-            elif slidefunction == 'endwrapper':
-                if l['bodycount'] == 5 and l['picturecount'] == 3:
-                    chosen, layoutholder = l, layout
-            elif slidefunction == 'dtv':
-                if l['bodycount'] == 1 and l['chartcount'] == 3 and l['tablecount'] == 2:
-                    chosen, layoutholder = l, layout
+def count_checker(original_data, body=0, title=0, chart=0, table=0, picture=0):
+    collected_values = [body, title, chart, table, picture]
+    checkable_values = ['body count', 'title count', 'chart count', 'table count', 'picture count']
+
+    # Collect statements to see if meets parameters
+    checklist = []
+    for value_idx, value in enumerate(checkable_values):
+        checklist.append(original_data[value] == collected_values[value_idx])
+
+    meets_parameters = set(checklist) == {True}
+    return meets_parameters
+
+
+def assign_layout(page_config, template_data):  # TO UPDATE, CREATE DICTIONARY FOR FORMAT OPTIONS
+    layout_selection, shapes_list = None, None
+
+    for layout in template_data:
+        config = template_data[layout]['layout config']
+        slide_function = page_config['function']
+        try:
+            fp = v.slide_function_options[slide_function]
+        except KeyError:
+            fp = None
+
+        table_count = page_config['number of tables']
+        chart_count = page_config['number of charts']
+        total_count = table_count + chart_count
+
+        if slide_function is not None:
+            if count_checker(config, body=fp['body'], title=fp['title'], chart=fp['chart'],
+                             table=fp['table'], picture=fp['picture']):
+                layout_selection, shapes_list = layout, template_data[layout]
+
         else:
-            if has_stat:  # Stats are considered charts, so chartcount is reduced by one to avoid too many placeholders
-                if l['bodycount'] == 3 and l['tablecount'] == tablecount and l['chartcount'] == (chartcount - 1):
-                    chosen, layoutholder = l, layout
+            if page_config['has stat']:
+                if count_checker(config, body=3, table=table_count, chart=(chart_count - 1)):
+                    layout_selection, shapes_list = layout, template_data[layout]
             else:
-                if l['tablecount'] == tablecount and l['chartcount'] == chartcount:
-                    chosen, layoutholder = l, layout
-                elif l['chartcount'] > 4 and l['chartcount'] == chartcount + 1:
-                    chosen, layoutholder = l, layout
+                if total_count <= 4 or total_count % 2 == 0:
+                    if count_checker(config, body=2, table=table_count, chart=chart_count):
+                        layout_selection, shapes_list = layout, template_data[layout]
+                else:
+                    if count_checker(config, body=2, table=table_count, chart=(chart_count + 1)):
+                        layout_selection, shapes_list = layout, template_data[layout]
+
+    return layout_selection, shapes_list
 
 
-    return layoutholder, chosen
-
-
-def assignchartdata(df, config, pct_dec_places = 1):
+def assign_chart_data(df, config):
     if 'DataFrame' in str(type(df)):
         chart_data = ChartData()
         chart_data.categories = df.index
         percent_format = '0'
-        if pct_dec_places > 0:
+        if config['dec places'] > 0:
             percent_format += '.'
-            for place in range((pct_dec_places)):
+            for place in range((config['dec places'])):
                 percent_format += '0'
         percent_format += '%'
         config['number format'] = percent_format
@@ -201,36 +257,7 @@ def assignchartdata(df, config, pct_dec_places = 1):
     return chart_data
 
 
-def scrub_formatting(text):
-    scrubbedtext = str(text)
-    for format in ['/b', '/i','/h1', '/h2', '/q', '/tag']:
-        scrubbedtext = scrubbedtext.replace(format, '')
-    return scrubbedtext
-
-
-def insert_text(textlst, text_frame):
-    for idx, para in enumerate(textlst):
-        if idx < 1 and '/tag' not in para:
-            p = text_frame.paragraphs[0]
-            p.level = 0
-        else:
-            p = text_frame.add_paragraph()
-            p.level = 1
-
-        # Command-based formatting
-        if '/b' in para:
-            p.font.bold = True
-        if '/tag' in para:
-            p.font.color.theme_color = MSO_THEME_COLOR.BACKGROUND_2
-            p.font.color.brightness = -0.5
-        if '/h1' in para:
-            p.level = 0
-        if '/h2' in para:
-            p.level = 1
-        p.text = scrub_formatting(para)
-
-
-def callout_formatting(shape, run_text, alignment=PP_ALIGN.CENTER, indexing=False, text_color = 'default'):
+def callout_formatting(shape, run_text, alignment=PP_ALIGN.CENTER, text_color='default'):
     text_frame = shape.text_frame
     text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
     p = text_frame.paragraphs[0]
@@ -245,33 +272,28 @@ def callout_formatting(shape, run_text, alignment=PP_ALIGN.CENTER, indexing=Fals
         font.color.brightness = -0.25
 
 
-def data_import(app, template, wbdata, templatedata, trusave, country = None, msg='Processing Data. '):
+def data_import(app, template, wbdata, templatedata, trusave, msg='Processing Data. '):
     logging.info('Starting Data Import')
     global prs
     prs = Presentation(template)
+
     # Select Layout and drop in charts
     for slideidx, page in enumerate(wbdata):
-        try:
-            pagemeta = wbdata[page]['page meta']
-        except:
-            pagemeta = wbdata[page]['page config']
-        chartcount = pagemeta['number of charts']
-        tablecount = pagemeta['number of tables']
-        has_stat = pagemeta['has stat']
-        function = pagemeta['function']
-        footertext = []
-        title_txt = pagemeta['page title']
-        section_tag = pagemeta['section tag']
+        page_config = wbdata[page]['page config']
+        footer_text = []
 
-        logging.info('Slide no. ' + str(slideidx + 1) + '--There is/are ' + str(chartcount + tablecount) + ' Charts:')
-        layout, shapeslist = layout_chooser(chartcount, tablecount, has_stat, templatedata, slidefunction=function)
+        total_charts = str(page_config['number of charts'] + page_config['number of tables'])
+        logging.info('Slide no. ' + str(slideidx + 1) + '--There is/are ' + total_charts + ' Charts:')
+
+        layout, shapeslist = assign_layout(page_config, templatedata)
         used_ph, used_data = [], []  # Used for multiple charts. Checks if placholders/data used already
         slide = prs.slides.add_slide(prs.slide_layouts[layout])
         slidenotes, preflightlst = [], []
 
         try:  # If page doesn't have a title, drops in section tags
-            slide.shapes.title.text = title_txt
-        except:
+            slide.shapes.title.text = page_config['page title']
+
+        except AttributeError:
             for shape in shapeslist:
                 if 'BODY' in shape:
                     if 12 > shapeslist[shape]['width'] > 9:
@@ -280,41 +302,42 @@ def data_import(app, template, wbdata, templatedata, trusave, country = None, ms
                             placeholder = slide.placeholders[phidx]
                             text_frame = placeholder.text_frame
                             p = text_frame.paragraphs[0]
-                            p.text = section_tag
+                            p.text = page_config['section tag']
 
         for chart in wbdata[page]:
             if chart != 'page config':
                 chart_config = wbdata[page][chart]['config']
-                intendedchart = chart_config['intended chart']
+                intended_chart = chart_config['intended chart']
                 title_question = chart_config['title question']
                 error_list = chart_config['error list']
-
-
                 slidenotes.append(chart_config['notes'])
-                try:
-                    v.statusupdate(app, (msg + str(chart_config['notes'][0])[11:-1]), 2)
-                    logging.info(msg + str(chart_config['notes'][0])[11:-1])
-                except:  # If there's no worksheet values, this will happen
-                    v.statusupdate(app, msg, 2)
-                    logging.info(chart_config['notes'])
 
+                try: # If title question has a value, this will handle it appropriately
+                    chart_config['data question'], chart_config['chart title'] = longestval(title_question)
+                    footer_text.append('Q: ' + (chart_config['data question']))
+                except IndexError: # Some imports skip this step
+                    pass
+
+                try: # Adds worksheet information to logging if available
+                    msg += str(chart_config['notes'][0])[11:-1]
+                except IndexError:
+                    pass
+
+                v.log_entry(msg, app_holder=app, fieldno=2)
 
                 if len(chart_config['bases']) > 0:
-                    footertext.append(str(chart_config['bases'])[1:-1])
-                if len(title_question) > 0:
-                    chart_config['data question'], chart_config['chart title'] = er.longestval(title_question)
-                    footertext.append(chart_config['data question'])
+                    footer_text.append('Base: ' + (str(chart_config['bases'])[1:-1]))
                 if len(chart_config['note']) > 0:
-                    footertext.append(str(chart_config['note'])[1:-1])
+                    for item in chart_config['note']:
+                        footer_text.append(item)
                 df = wbdata[page][chart]['frame']
-                chart_data = assignchartdata(df, chart_config)
+                chart_data = assign_chart_data(df, chart_config)
                 preflightlst.append(error_list)
 
-                if intendedchart == 'TABLE':
+                if intended_chart == 'TABLE':
                     for shape in shapeslist:
                         if 'TABLE' in shape:
                             if shape not in used_ph and chart_data not in used_data:
-                                t_banding = chart_config['banding']
                                 phidx = shapeslist[shape]['index']
                                 placeholder = slide.placeholders[phidx]
                                 chc.create_table(df, placeholder, chart_config)
@@ -322,7 +345,7 @@ def data_import(app, template, wbdata, templatedata, trusave, country = None, ms
                                     add_gradient_legend(slide)
                                 used_ph.append(shape)
                                 used_data.append(chart_data)
-                elif intendedchart == 'STAT':
+                elif intended_chart == 'STAT':
                     for shape in shapeslist:
                         if 'BODY' in shape:
                             if shape not in used_ph and chart_data not in used_data:
@@ -333,7 +356,7 @@ def data_import(app, template, wbdata, templatedata, trusave, country = None, ms
                                     insert_text(chart_data, text_frame)
                                     used_ph.append(shape)
                                     used_data.append(chart_data)
-                elif intendedchart == 'PICTURE':
+                elif intended_chart == 'PICTURE':
                     for shape in shapeslist:
                         if 'PICTURE' in shape:
                             if shape not in used_ph and chart_data not in used_data:
@@ -353,7 +376,7 @@ def data_import(app, template, wbdata, templatedata, trusave, country = None, ms
                                     used_ph.append(shape)
                                     used_data.append(chart_data)
 
-            else:  # If it is page meta
+            else:  # If it is page config
                 pagecontent = wbdata[page][chart]
                 if len(pagecontent) > 0:
                     textlst = wbdata[page][chart]['page copy']
@@ -376,7 +399,7 @@ def data_import(app, template, wbdata, templatedata, trusave, country = None, ms
                         shape.shadow.inherit = False
                         shape.line.fill.background()
                         fill = shape.fill
-                        if c[4] == None:
+                        if c[4] is None:
                             fill.background()
                         elif c[4] == 'white':
                             fill.solid()
@@ -387,16 +410,14 @@ def data_import(app, template, wbdata, templatedata, trusave, country = None, ms
                             alignment = PP_ALIGN.CENTER
                         else:
                             alignment = PP_ALIGN.LEFT
-                        callout_formatting(shape, c[5], alignment, c[7], c[8])
+                        callout_formatting(shape, c[5], alignment, c[7])
 
         try:
-            create_footer(slide, footertext, chart_config['directional check'])
-        except UnboundLocalError:
-            logging.info('d_check not defined')
+            create_footer(slide, footer_text)
         except AttributeError:
             logging.info('No Footer Placeholder found')
 
         notesinsert(slide, slidenotes)  # Add notes to every slide
         preflight(slide, preflightlst)  # Add boxes with error messages to applicable slides
     prs.save(trusave)
-    v.statusupdate(app, ' File Saved', 2)
+    v.log_entry('File Saved', app_holder=app, fieldno=2)
