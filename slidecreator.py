@@ -34,7 +34,7 @@ def notesinsert(slide, notestext):
 def scrub_formatting(text):
     scrubbedtext = str(text)
     for text_format in ['/b', '/i', '/h1', '/h2', '/h3', '/h4', '/h5', '/h6', '/h7',
-                        '/q', '/tag', '#', '/mint', '/mandarin']:
+                        '/q', '/tag', '#', '/mint', '/mandarin', '/clear']:
         scrubbedtext = scrubbedtext.replace(text_format, '', -1)
     return scrubbedtext
 
@@ -45,13 +45,18 @@ def text_formatting(text, text_unit):
     if '/tag' in text:
         text_unit.font.color.theme_color = MSO_THEME_COLOR.BACKGROUND_2
         text_unit.font.color.brightness = -0.5
-    for level in ['/h1', '/h2', '/h3', '/h4', '/h5', '/h6', '/h7']:
-        if level in text:
-            text_unit.level = int(level[-1]) - 1
+    if '/i' in text:
+        text_unit.font.italic = True
     if '/mandarin' in text:
         text_unit.font.color.theme_color = v.brand_colors['mandarin']
     if '/mint' in text:
         text_unit.font.color.theme_color = v.brand_colors['mint']
+    if '/clear' in text:
+        text_unit.font.bold = False
+        text_unit.font.italic = False
+    for level in ['/h1', '/h2', '/h3', '/h4', '/h5', '/h6', '/h7']:
+        if level in text:
+            text_unit.level = int(level[-1]) - 1
 
 
 def insert_text(textlst, text_frame, one_level=False):
@@ -191,6 +196,7 @@ def count_checker(original_data, body=0, title=0, chart=0, table=0, picture=0):
         checklist.append(original_data[value] == collected_values[value_idx])
 
     meets_parameters = set(checklist) == {True}
+
     return meets_parameters
 
 
@@ -210,10 +216,13 @@ def assign_layout(page_config, template_data):  # TO UPDATE, CREATE DICTIONARY F
         total_count = table_count + chart_count
 
         if slide_function is not None:
-            if count_checker(config, body=fp['body'], title=fp['title'], chart=fp['chart'],
-                             table=fp['table'], picture=fp['picture']):
-                layout_selection, shapes_list = layout, template_data[layout]
-
+            if slide_function == 'chart and text':
+                if config['name'] == 'TT_Primary_Chart_&_Text':
+                    layout_selection, shapes_list = layout, template_data[layout]
+            else:
+                if count_checker(config, body=fp['body'], title=fp['title'], chart=fp['chart'],
+                                 table=fp['table'], picture=fp['picture']):
+                    layout_selection, shapes_list = layout, template_data[layout]
         else:
             if page_config['has stat']:
                 if count_checker(config, body=3, table=table_count, chart=(chart_count - 1)):
@@ -242,7 +251,7 @@ def assign_chart_data(df, config):
         config['number format'] = percent_format
 
         # Move to Data Cleanup
-        if config['*FORCE FLOAT'] or config['*MEAN']:
+        if config['*FORCE FLOAT'] or config['*MEAN'] and not config['*FORCE PERCENT']:
             config['number format'] = '0.0'
         elif config['*FORCE INT']:
             config['number format'] = '0'
@@ -279,8 +288,10 @@ def data_import(app, template, wbdata, templatedata, trusave, msg='Processing Da
 
     # Select Layout and drop in charts
     for slideidx, page in enumerate(wbdata):
+        msg = 'Processing Data '
         page_config = wbdata[page]['page config']
         footer_text = []
+        footer_text += page_config['footer']
 
         total_charts = str(page_config['number of charts'] + page_config['number of tables'])
         logging.info('Slide no. ' + str(slideidx + 1) + '--There is/are ' + total_charts + ' Charts:')
@@ -292,6 +303,16 @@ def data_import(app, template, wbdata, templatedata, trusave, msg='Processing Da
 
         try:  # If page doesn't have a title, drops in section tags
             slide.shapes.title.text = page_config['page title']
+
+            if page_config['subtitle'] is not None:
+                for shape in shapeslist:
+                    if 'BODY' in shape:
+                        if shapeslist[shape]['width'] == 9.13 and shapeslist[shape]['height'] == 0.93:
+                            phidx = shapeslist[shape]['index']
+                            placeholder = slide.placeholders[phidx]
+                            text_frame = placeholder.text_frame
+                            p = text_frame.paragraphs[0]
+                            p.text = page_config['subtitle']
 
         except AttributeError:
             for shape in shapeslist:
@@ -320,6 +341,7 @@ def data_import(app, template, wbdata, templatedata, trusave, msg='Processing Da
 
                 try: # Adds worksheet information to logging if available
                     msg += str(chart_config['notes'][0])[11:-1]
+
                 except IndexError:
                     pass
 
@@ -380,16 +402,25 @@ def data_import(app, template, wbdata, templatedata, trusave, msg='Processing Da
                 pagecontent = wbdata[page][chart]
                 if len(pagecontent) > 0:
                     textlst = wbdata[page][chart]['page copy']
-                    for shape in shapeslist:
-                        if 'BODY' in shape:
-                            if shape not in used_ph and textlst not in used_data:
-                                if (shapeslist[shape]['height'] > 3) or (shapeslist[shape]['height'] > 2 and shapeslist[shape]['width'] > 9):
-                                    phidx = shapeslist[shape]['index']
-                                    placeholder = slide.placeholders[phidx]
-                                    text_frame = placeholder.text_frame
-                                    insert_text(textlst, text_frame)
-                                    used_ph.append(shape)
-                                    used_data.append(textlst)
+                    try:
+                        # Checks if text is list within list. If not converts it to that.
+                        if type(textlst[0]) is not list:
+                            textlst = [textlst]
+
+                        for blurb in textlst:
+                            for shape in shapeslist:
+                                if 'BODY' in shape:
+                                    if shape not in used_ph and blurb not in used_data:
+                                        # The below will break when the template changes
+                                        if (shapeslist[shape]['height'] > 1) and (shapeslist[shape]['height'] != 2.72):
+                                            phidx = shapeslist[shape]['index']
+                                            placeholder = slide.placeholders[phidx]
+                                            text_frame = placeholder.text_frame
+                                            insert_text(blurb, text_frame)
+                                            used_ph.append(shape)
+                                            used_data.append(blurb)
+                    except IndexError:
+                        pass
                 if len(pagecontent['callouts']) > 0:
                     shapes = slide.shapes
                     for callout in pagecontent['callouts']:

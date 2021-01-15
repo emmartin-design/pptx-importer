@@ -39,7 +39,7 @@ def topbox_formatting(chart, slen):  # Makes the "overal top box" category trans
 
 
 def seriescolor_formatting(chart, ic, catlen, slen, other=None, overall=None, highlight=None):
-    if ic == 'PIE':
+    if ic == 'PIE' or highlight is not None:
         for sc, series in enumerate(chart.series):
             for i, point in enumerate(series.points):
                 if int(catlen) > 2:  # Overwrites color with slate or gray if certain terms used
@@ -51,6 +51,13 @@ def seriescolor_formatting(chart, ic, catlen, slen, other=None, overall=None, hi
                     elif i == other:
                         fill.fore_color.theme_color = MSO_THEME_COLOR.BACKGROUND_2
                         fill.fore_color.brightness = 0.15
+                    else:
+                        if i == highlight:
+                            fill.fore_color.theme_color = MSO_THEME_COLOR.ACCENT_1
+                        else:
+                            if highlight is not None and i != highlight:
+                                fill.fore_color.theme_color = MSO_THEME_COLOR.BACKGROUND_2
+                                fill.fore_color.brightness = -0.10
     else:
         for i, series in enumerate(chart.series):
             if int(slen) > 2:  # Overwrites color with slate or gray if certain terms used
@@ -89,15 +96,15 @@ def colorbreak(number):  # Used to determine when data labels flip to black
         return 1
 
 
-def assign_highlights(lst):  # Looks at series/category names and records their index for highlighting
+def assign_highlights(lst, config):  # Looks at series/category names and records their index for highlighting
     overall, other, highlight = None, None, None
     for item in lst:  # Looks at columns to assign proper index for chart highlights
         itemstr = str(item).upper()
-        if itemstr in v.chart_color_variations['emphasis']:
+        if itemstr in config['emphasis']:
             overall = lst.index(item)
-        elif itemstr in v.chart_color_variations['de-emphasis']:
+        elif itemstr in config['de-emphasis']:
             other = lst.index(item)
-        elif itemstr in v.chart_color_variations['highlight']:
+        elif itemstr in config['highlight values']:
             highlight = lst.index(item)
     return overall, other, highlight
 
@@ -374,13 +381,16 @@ def create_chart(df, placeholder, chart_data, config):
         number_of_cats = len(df.index)
         seriesnocheck = number_of_series > 1  # Checks if there are multiple series
 
-        overall, other, highlights = assign_highlights(df.columns.tolist())
+        overall, other, highlight = assign_highlights(df.columns.tolist(), config)
+
+        if config['*HIGHLIGHT'] and len(df.columns) == 1:
+            overall, other, highlight = assign_highlights(df.index.tolist(), config)
 
     except:  # If chart is a pie chart, the following can happen.
         number_of_series = 1
         number_of_cats = len(df.index)
         seriesnocheck = True
-        overall, other, highlight = assign_highlights(df.index.tolist())
+        overall, other, highlight = assign_highlights(df.index.tolist(), config)
 
     chart.has_legend = seriesnocheck
     if seriesnocheck:
@@ -402,7 +412,7 @@ def create_chart(df, placeholder, chart_data, config):
             differing_data_labels(chart, intendedchart, number_of_series, number_of_cats, config['label text'])
 
     chart.plots[0].vary_by_categories = seriesnocheck
-    seriescolor_formatting(chart, intendedchart, str(number_of_cats), str(number_of_series), other, overall, highlight=None)
+    seriescolor_formatting(chart, intendedchart, str(number_of_cats), str(number_of_series), other, overall, highlight)
 
     if config['*TOP BOX']:
         topbox_formatting(chart, str(len(df.columns)))

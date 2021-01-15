@@ -82,7 +82,18 @@ report_config = {
         'index ranges': None,
         'additional files': 'templates/import_resources/text_files/valuelto_scorecard_text.xlsx'
     },
-    'DirecTV Scorecard': {'report type': 'dtv', 'report list': [None], 'report suffix': ''}
+    'DirecTV Scorecard': {'report type': 'dtv', 'report list': [None], 'report suffix': ''},
+    'Consumer KPIs': {
+        'report type': 'consumer kpis',
+        'report list': [None],  # Used as a backup. Report list is defined at import
+        'report suffix': '',
+        'subtitle': 'Top-Line Competitive Brand Assessment',
+        'table of contents': ['In this report', 'Consumer Demographic Profile', 'Visit Alternatives',
+                              'Need States by Occasion', 'Important Metrics vs. Competitors',
+                              'Craveable Items and Qualitative Responses', 'Overall Visit Satisfaction'
+                              ],
+        'additional files': 'templates/import_resources/text_files/consumer_kpi_static_text.xlsx'
+    }
 }
 
 # Slide functions for static data report imports
@@ -116,7 +127,7 @@ error_dict = {
 
 # PAGE CONFIGURATION ##################################################################################################
 
-def assign_page_config(chart_count=0, table_count=0, has_stat=False, title=None, tag=None, function=None,
+def assign_page_config(chart_count=0, table_count=0, has_stat=False, title=None, subtitle=None, tag=None, function=None,
                        full_chart=False, page_copy=None):
     if page_copy is None:
         page_copy = []
@@ -126,6 +137,7 @@ def assign_page_config(chart_count=0, table_count=0, has_stat=False, title=None,
         'number of tables': table_count,
         'has stat': has_stat,
         'page title': title,
+        'subtitle': subtitle,
         'section tag': tag,
         'page copy': page_copy,
         'footer': [],
@@ -195,7 +207,8 @@ chart_styles = {
     'mint': 5,
     'mandarin': 6,
     'sultana': 7,
-    'grape': 8
+    'grape': 8,
+    'gray': 1
 }
 
 # Used to assign colors to all objects
@@ -207,13 +220,6 @@ brand_colors = {
     'mandarin': MSO_THEME_COLOR.ACCENT_4,
     'sultana': MSO_THEME_COLOR.ACCENT_5,
     'grape': MSO_THEME_COLOR.ACCENT_6
-}
-
-# Used to change colors of chart points based on list contents
-chart_color_variations = {
-    'emphasis': ['OVERALL', 'SUM', 'TOTAL'],
-    'de-emphasis': ['OTHER', 'SAME', 'PREFER NOT TO SAY', 'NEVER', 'OTHER: PLEASE SPECIFY'],
-    'highlight': []
 }
 
 # Dummy data to insert when major data errors arise.
@@ -248,6 +254,7 @@ def assign_chart_config(
         # Chart data formatting
         '*FORCE PERCENT': False,
         '*MEAN': False,
+        '*MEDIAN': False,
         '*FORCE FLOAT': False,
         '*FORCE CURRENCY': False,
         '*FORCE INT': force_int,
@@ -260,6 +267,9 @@ def assign_chart_config(
         '*TOP BOX': top_box,
         '*HEAT MAP': heatmap,
         '*HIGHLIGHT': highlight,
+        'highlight values': [None],
+        'emphasis': ['OVERALL', 'SUM', 'TOTAL'],
+        'de-emphasis': ['OTHER', 'SAME', 'PREFER NOT TO SAY', 'NEVER', 'OTHER: PLEASE SPECIFY'],
         'intended chart': intended_chart,
         'preferred color': preferred_color,
         'banding': banding,
@@ -310,6 +320,7 @@ stopwords = {'PLEASE', 'FOODSERVICE', 'THE', 'WHAT', 'WHO', 'HOW', 'WHICH', 'WHE
              'REPRESENT', 'THINKING', 'BACK', 'GENERALLY', 'SPEAKING', 'RESTAURANT', 'SERVES'
              }
 
+common_abbreviations = ['B&I', 'C&U', 'HR', 'FSR', 'QSR', 'CDR']
 
 def month_lst(number_of_months, last_month, year=None, separator='\n'):
     # Creates a list of months equal to length of provided number of months, ending with the last month
@@ -418,6 +429,14 @@ preferred_layouts = {
         'TT_3_chart_2_table',
         'TT_Two_Chart_Equal',
         'TT_Primary_Table_&_Text'
+    ],
+    'consumer kpis': [
+        'IGNITE_TitlePage',
+        'TT—Subsection Intro, Main Ideas',
+        'TT_Primary_Chart_&_Text',
+        'TT_6_Chart_&_Text',
+        'TT_Half_Chart_Half_Text',
+        'TT_End Wrapper_w_Photos'
     ]
 }
 
@@ -607,8 +626,10 @@ mock_chart = {
 # COMPANY-SPECIFIC VARIABLES #########################################################################################
 
 employees = {
+    'bt': ['Britany Trujillo', 'Research Analyst', 'btrujillo@technomic.com '],
+    'jc': ['Jenna Carroll', 'Research Analyst', 'jrcarroll@technomic.com'],
     'lh': ['Lauren Hallow', 'Senior Manager, Research and Insights', 'lhallow@technomic.com'],
-    'jc': ['Jenna Carroll', 'Research Analyst', 'jrcarroll@technomic.com']
+    'rb': ['Robert Byrne', 'Director, Research and Insights', 'rbyrne@technomic.com'],
 }
 
 # ROUNDING MODULE ####################################################################################################
@@ -619,4 +640,5 @@ def trueround(number, places=0):
     rounded = (int(number*place + 0.5 if number>=0 else -0.5))/place
     if rounded == int(rounded):
         rounded = int(rounded)
+
     return rounded

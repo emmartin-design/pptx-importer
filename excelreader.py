@@ -3,6 +3,7 @@ from collections import OrderedDict
 import pandas as pd
 import logging
 from datetime import datetime
+from datetime import date, time
 
 #Local Module
 import variables as v
@@ -43,7 +44,7 @@ def scrubber(dataog, app=None):
     data = dataog.copy()
     for slidecount, slide in enumerate(dataog):
         if app != None:
-            msg_for_ui = 'Scrubbing Data — ' + str(trueround(((slidecount / len(dataog)) * 100), 0)) + '%'
+            msg_for_ui = 'Scrubbing Data — ' + str(v.trueround(((slidecount / len(dataog)) * 100), 0)) + '%'
             v.log_entry(msg_for_ui, app_holder=app, fieldno=1)
         page_config = dataog[slide]['page config']
         page_config['number of tables'] = 0
@@ -66,6 +67,18 @@ def scrubber(dataog, app=None):
         if datavizcount + copycount == 0:
             del data[slide]
     return data
+
+
+# Page counting and dictionary update functions
+def new_page(page_counter, slide_data, parameters=None):
+    page_counter += 1
+    slide_data[page_counter] = {}
+    slide_data[page_counter]['page config'] = v.assign_page_config()
+    if parameters is not None:
+        for parameter in parameters:
+            slide_data[page_counter]['page config'][parameter] = parameters[parameter]
+
+    return page_counter, slide_data
 
 
 def readbook(app, file, pptxname, country = None):
@@ -360,17 +373,6 @@ def scorecard(file, config):
     for col in ['Designation', 'Dine-In', 'Takeout', 'Delivery']:
         df[col] = 0
 
-    # Page counting and dictionary update functions
-    def new_page(page_counter, slide_data, parameters=None):
-        page_counter += 1
-        slide_data[page_counter] = {}
-        slide_data[page_counter]['page config'] = v.assign_page_config()
-        if parameters is not None:
-            for parameter in parameters:
-                slide_data[page_counter]['page config'][parameter] = parameters[parameter]
-
-        return page_counter, slide_data
-
     # Set up page dictionary
     slide_data = {}
     page_counter = 0  # Allows streamlining the content for two similar report structures.
@@ -428,7 +430,10 @@ def scorecard(file, config):
         intro_parameters = {
             'function': 'intro',
             'section tag': report_config['report title'],
-            'page copy': ['Recommended Action', 'Details and Qualifiers']
+            'page copy': [
+                ['Recommended Action', 'Details and Qualifiers'],
+                ['Proceed Investment', 'N/A', '/h1Proceed Caution', 'N/A', '/h1Stop investment', 'N/A']
+            ]
         }
 
         page_counter, slide_data = new_page(page_counter, slide_data, intro_parameters)
@@ -719,18 +724,30 @@ def scorecard(file, config):
                                                             "Need some more LTO guidance? Reach out to our experts."]
     slide_data[page_counter]['page config']['section tag'] = 'About Technomic'
 
-    for chart in [1, 2, 3, 4]:
+    for chart in [1, 2]:
         slide_data[page_counter][chart] = {}
-        if chart < 3:
-            ee = 'lh'
-        else:
-            ee = 'jc'
+        ee = 'jc'
         if (chart % 2) == 0:
             slide_data[page_counter][chart]['frame'] = v.employees[ee]
             slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='STAT')
         else:
             slide_data[page_counter][chart]['frame'] = 'templates/import_resources/headshots/' + ee + '.jpg'
             slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='PICTURE')
+
+    # Replace the above with the following once a new employee is added to the report end wrapper
+
+    '''for chart in [1, 2, 3, 4]:
+        slide_data[page_counter][chart] = {}
+        if chart < 3:
+            ee = 'jc'
+        else:
+            ee = 'er' # Replace with other employee
+        if (chart % 2) == 0:
+            slide_data[page_counter][chart]['frame'] = v.employees[ee]
+            slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='STAT')
+        else:
+            slide_data[page_counter][chart]['frame'] = 'templates/import_resources/headshots/' + ee + '.jpg'
+            slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='PICTURE')'''
 
 
     slide_data_sd = scrubber(slide_data)
@@ -747,8 +764,21 @@ def dtv_reader(file, entertainment=None):
 
     month_variant = 2  # May need to change based on report data date
 
+    def date_manipulator(variant):
+        month_number = datetime.now().month - variant
+        if month_number < 0:
+            month_number += 13
+        year_number = datetime.now().year
+        if datetime.now().month < month_variant:
+            year_number = datetime.now().year - 1
+        date_holder = datetime(year_number, month_number, 15)
+        date_formatted = date_holder.strftime('%B %Y')
+        return date_formatted
+
+    current_month = date_manipulator(month_variant)
+    last_month = date_manipulator((month_variant + 1))
+
     title_months = v.month_lst(3, ((datetime.now().month) - month_variant))
-    reportdate = str(title_months[-1]) + ' ' + str(datetime.now().year)
 
     # If additional values are provided, a third layout per account will be created
     layout_list = [1, 2]
@@ -761,7 +791,7 @@ def dtv_reader(file, entertainment=None):
             slide_data[page] = {}
             slide_data[page]['page config'] = v.assign_page_config()
             page_config = slide_data[page]['page config']
-            page_config['section tag'] = str(account) + ' | Consumer Visit Tracker & Ignite Consumer | ' + reportdate
+            page_config['section tag'] = str(account) + ' | Consumer Visit Tracker & Ignite Consumer | ' + current_month
             if layout == 1:  # First page of account
                 for chart in range(1, 6):
                     slide_data[page][chart] = {}
@@ -790,11 +820,13 @@ def dtv_reader(file, entertainment=None):
                 for month in title_months:
                     if month != title_months[-1]:
                         share_title += (str(month) + '-')
-                share_title += (' ' + str(datetime.now().year) + ' VS. ' + str(datetime.now().year - 1))
+                    else:
+                        share_title += str(month)
+                share_title += (' ‘' + str(datetime.now().year)[-2:] + ' VS. ‘' + str(datetime.now().year - 1)[-2:])
 
                 note_txt = [
                     '* Percent shown reflect results from September 2020 YTD',
-                    'Arrows indicate change from August YTD 2020 to September 2020 YTD'
+                    'Arrows indicate change from ' + last_month + ' YTD to ' + current_month + ' YTD'
                 ]
 
                 slide_data[page][1]['frame'] = sms_df_t
@@ -951,4 +983,243 @@ def dtv_reader(file, entertainment=None):
     return slide_data_sd
 
 
+def consumer_kpi_reader(file, kpi_df, config, brand):  # __main__ passed 'report', which becomes 'brand' here.
+    report_config = config.copy()
 
+    # Grab Attribute Importance information
+    attribute_importance = pd.read_excel(file, sheet_name=1)
+    attribute_importance_df = pd.DataFrame(attribute_importance)
+    attribute_importance_df.set_index(['Segment'], inplace=True)
+
+    # Set up static copy
+    explainer_text = pd.read_excel(report_config['additional files'], sheet_name=0)
+    archetypes_df = pd.read_excel(report_config['additional files'], sheet_name=1)
+    archetypes_df.set_index(['Initials'], inplace=True)
+
+    # Create brand-specific series
+    slide_data = {}
+    page_counter = 0
+    brand_series = kpi_df.loc[brand]
+
+    # create segment-specific series
+    segment_name = str(brand_series.at['Seg']).upper()
+    segment_category = segment_name + ' Avg'
+    segment_series = kpi_df.loc[segment_category]
+
+    segment_attribute_importance_series = attribute_importance_df.loc[segment_name]
+
+    # Create DataFrame for competitive set
+    va_names = brand_series['VA-1':'VA-6'].values.tolist()
+    score_comparison_list = [segment_category, brand]
+    comp_set_note = ''
+    for name in va_names:
+        if name in kpi_df.index:
+            score_comparison_list.append(name)
+        else:
+            comp_set_note = name + ' data excluded from visualizations'
+    comp_set_df = kpi_df.loc[score_comparison_list]
+
+    # Create Cover
+    cover_parameters = {
+        'function': 'cover',
+        'page title': (brand + ' KPI Stats'),
+        'subtitle': report_config['subtitle'],
+        'page copy': [report_config['table of contents']]
+    }
+    page_counter, slide_data = new_page(page_counter, slide_data, cover_parameters)
+
+    # Create Demographic Skews
+
+    demog_stats = {
+        'sex': {'categories': ['Female', 'Male']},
+        'generation': {'categories': ['Generation Z', 'Millennials', 'Generation X','Baby Boomers', 'Matures']},
+        'ethnicity': {'categories': ['Black', 'White', 'Chinese', 'South Asian', 'Other Asian/Other']},
+        'income': {'categories': ['Under $25,000', '$25,000 - $34,999', '$35,000 - $49,999', '$50,000 - $74,999',
+                   '$75,000 - $99,999', '$100,000- $150,000', '$150,000 +']}
+    }
+
+    demog_phrases = {
+        '1,2,3': '/clearof frequent guests are#',
+        '4': '/clearof frequent guests have a household income of#',
+        '5': '/clearof frequent guests live in#',
+        '6': '/clearof frequent quests#',
+        'A': '/clearcompared to#',
+        'B': '/clearacross the#',
+        'C': '/clearsegment#'
+    }
+
+    textbox_1, textbox_2, textbox_3 = [], [], []
+    counter = 1
+
+    for section, box in zip(demog_stats, [textbox_1, textbox_1, textbox_2, textbox_2, textbox_3, textbox_3]):
+        stats = demog_stats[section]
+        stats['frame'] = brand_series[stats['categories']].copy().transpose()
+        stats['maxval'] = '/h1' + str(v.trueround((stats['frame'].max() * 100), 1)) + '%'
+        stats['maxidx'] = '/b' + stats['frame'].index.max() + '#'
+        stats['segment val'] = str(v.trueround((segment_series.at[stats['frame'].index.max()] * 100) , 1)) + '%'
+        stats['segment name'] = str(brand_series.at['Seg']).upper()
+
+        variant = '1,2,3'
+        for phrase in demog_phrases:
+            if str(counter) in phrase:
+                variant = phrase
+
+        box.append(stats['maxval'])
+        box.append(' '.join([demog_phrases[variant], stats['maxidx'], demog_phrases['A'], stats['segment val'],
+                             demog_phrases['B'], stats['segment name'], demog_phrases['C']]))
+        counter += 1
+
+    archetype_skew = [
+        (brand + ' customers tend to be ' + archetypes_df.loc[brand_series.at['EaterArchetype']]['Name'] + 's'),
+        archetypes_df.loc[brand_series.at['EaterArchetype']]['Description']
+    ]
+
+    ct_text = ['About Consumer Tracking'] + explainer_text[explainer_text.columns[0]].values.tolist()
+
+    intro_parameters = {
+        'function': 'intro',
+        'section tag': ('KPI STATS | ' + brand),
+        'page copy': [
+            archetype_skew,
+            ct_text,
+            textbox_1,
+            textbox_2,
+            textbox_3,
+        ]
+    }
+
+    page_counter, slide_data = new_page(page_counter, slide_data, intro_parameters)
+
+    # Create Visit Alternatives
+
+    visit_alternative_parameters = {
+        'section tag': ('KPI STATS | ' + brand),
+        'number of charts': 1,
+        'function': 'chart and text',
+        'page copy': [str(round((brand_series['Visit a restaurant'] * 100), 1)) + '%',
+                      ('would have gone to another restaurant as an alternative to ' + brand)]
+    }
+
+    va_values = brand_series['VA1-score':'VA6-score']
+    va_values.index = va_names  # va names assigned at start
+    va_values_df = va_values.to_frame()
+    chart_title = 'Percent of Consumers who Considered Visiting _________'
+
+    page_counter, slide_data = new_page(page_counter, slide_data, visit_alternative_parameters)
+
+    va_config = v.assign_chart_config(intended_chart='COLUMN', has_data=True, title=chart_title, pct_dec_places=1)
+    slide_data[page_counter][1] = {'frame': va_values_df, 'config': va_config}
+
+    # Create Need State Occasion
+
+    # Create Top Visit factors
+    copy_tag = '/tag' + ('Top six visit factors when selecting a ' +
+                         str(brand_series['Seg']).upper() +
+                         ' for a meal').upper()
+
+    note = ['Base: varies, approximately 42,276 FCR consumers per attribute. (Q3 2017-Q2 2018)',
+            'Q: Based on your recent visit, how would you rate the chain on the following?',
+            'Total base: 700 recent guests per brand (Q3 2017-Q2 2018)',
+            'Showing percentage selecting very good (top-box rating)']
+
+    visit_factor_parameters = {
+        'section tag': ('KPI STATS | ' + brand),
+        'number of charts': 6,
+        'page copy': [copy_tag],
+        'footer': note
+    }
+
+    segment_attribute_importance_series
+
+    top_factors_names = segment_attribute_importance_series['Importance-1':'Importance-6']
+    top_factors_values = segment_attribute_importance_series['Importance-score-1':'Importance-score-6']
+    top_factors_values.index = top_factors_names
+    top_factors_df = top_factors_values.to_frame()
+    top_factors = top_factors_df.index.tolist()
+
+    for factor in top_factors:
+        stat = v.trueround((top_factors_df.at[factor, top_factors_df.columns[0]] * 100), 1)
+        stat_string = '/b' + str(stat) + '%# ' + factor
+        visit_factor_parameters['page copy'].append(stat_string)
+
+    page_counter, slide_data = new_page(page_counter, slide_data, visit_factor_parameters)
+
+    for factor_number, factor in enumerate(top_factors):
+        factor_df = comp_set_df[factor].to_frame()
+        factor_df_s = factor_df.sort_values(by=[factor_df.columns[0]], ascending=[False])
+        chart_title = str(factor).upper()
+        factor_config = v.assign_chart_config(intended_chart='BAR', has_data=True, title=chart_title, pct_dec_places=1,
+                                              highlight=True)
+        factor_config['highlight values'].append(brand.upper())
+        factor_config['emphasis'].append(segment_category.upper())
+        slide_data[page_counter][factor_number] = {'frame': factor_df_s, 'config': factor_config}
+
+
+    # Create Top Craveable items
+    c_footer = 'Panera Bread recent Zoes Kitchen guests who rated the chain as good or very good for craveable items'
+
+    craveable_parameters = {
+        'section tag': ('KPI STATS | ' + brand),
+        'number of charts': 1,
+        'page copy': ['/h2/bDips', '/h5Quote', '', '/h2/bSalads', '/h5Quote', '', '/h2/bChicken', '/h5Quote', ''],
+        'footer': [c_footer]
+    }
+
+    page_counter, slide_data = new_page(page_counter, slide_data, craveable_parameters)
+
+    craveable_categories = brand_series['craveable_item1':'craveable_item5'].tolist()
+    craveable_values = brand_series['score1':'score5']
+    craveable_values.index = craveable_categories  # va names assigned at start
+    craveable_values_df = va_values.to_frame()
+    chart_title = 'Most Craveable Items'
+
+    craveable_config = v.assign_chart_config(intended_chart='COLUMN', has_data=True, title=chart_title, pct_dec_places=1)
+    slide_data[page_counter][1] = {'frame': craveable_values_df, 'config': craveable_config}
+
+    # Create Overall Score
+    overall_footer = ['Based on your recent visit, how would you rate the chain on the following?',
+                      'Total base: 700 recent guests per brand (Q3 2017-Q2 2018)',
+                      'Showing percentage selecting very good (top-box rating)']
+
+    visit_satisfaction_parameters = {
+        'section tag': ('KPI STATS | ' + brand),
+        'number of charts': 1,
+        'function': 'chart and text',
+        'page copy': ['/h5Quote'],
+        'footer': overall_footer
+    }
+
+    page_counter, slide_data = new_page(page_counter, slide_data, visit_satisfaction_parameters)
+
+    overall_score_df = comp_set_df['Overall Rating'].to_frame()
+    overall_score_df_s = overall_score_df.sort_values(by=[overall_score_df.columns[0]], ascending=[False])
+    chart_title = 'Overall Visit Satisfaction'
+    overall_score_config = v.assign_chart_config(intended_chart='BAR', has_data=True, title=chart_title,
+                                                 pct_dec_places=1, highlight=True)
+    overall_score_config['highlight values'].append(brand.upper())
+    overall_score_config['emphasis'].append(segment_category.upper())
+    slide_data[page_counter][1] = {'frame': overall_score_df_s, 'config': overall_score_config}
+
+    # Create Endwrapper
+    end_parameters = {
+        'section tag': ('KPI STATS | ' + brand),
+        'function': 'end wrapper',
+        'page copy': ["So. What's Next?", "Need some consumer questions answered? Reach out to our experts"]
+    }
+
+    page_counter, slide_data = new_page(page_counter, slide_data, end_parameters)
+
+    for chart in [1, 2, 3, 4]:
+        slide_data[page_counter][chart] = {}
+        if chart < 3:
+            ee = 'rb'
+        else:
+            ee = 'bt'
+        if (chart % 2) == 0:
+            slide_data[page_counter][chart]['frame'] = v.employees[ee]
+            slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='STAT')
+        else:
+            slide_data[page_counter][chart]['frame'] = 'templates/import_resources/headshots/' + ee + '.jpg'
+            slide_data[page_counter][chart]['config'] = v.assign_chart_config(intended_chart='PICTURE')
+
+    return slide_data

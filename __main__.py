@@ -1,6 +1,7 @@
 # To package as EXE run "python -m PyInstaller --onefile --windowed __main__.py" in terminal
 from appJar import gui
 from datetime import datetime
+import pandas as pd  # Only used for Consumer KPIs. Find another method?
 
 # Internal module pieces
 import variables as v
@@ -63,6 +64,12 @@ def press():
         else:
             dtv_et_totals = None
 
+    # CONSUMER KPI Only
+    if report_selection == 'Consumer KPIs':
+        kpi_exceldata = pd.read_excel(file, sheet_name=0)
+        kpi_df = pd.DataFrame(kpi_exceldata)
+        kpi_df.set_index(['Row Labels'], inplace=True)
+        report_list = kpi_df.index.values.tolist()
 
     # Find and read the template
     template = app.getEntry('template')
@@ -94,6 +101,9 @@ def press():
 
             elif report_type == 'dtv':
                 wbdata = er.dtv_reader(file, dtv_et_totals)
+
+            elif report_type == 'consumer kpis':
+                wbdata = er.consumer_kpi_reader(file, kpi_df, report_config[report_selection], report)
 
             # Create pptx and drop in data
             sc.data_import(app, template, wbdata, template_data, full_directory, msg='Processing Data')
@@ -142,6 +152,7 @@ with gui('File Selection', '1000x600') as app:
 
     app.startTab('Settings')
     app.addCheckBox('Use Single-Color Import', row=0, column=0)
+    app.setCheckBox('Use Single-Color Import', ticked=True, callFunction=False)
     app.addEntry('template', row=1, column=0, colspan=2)
     app.setEntry('template', v.default_template, callFunction=False)
     app.addButton('Select Alternate Template', templateselect, row=1, column=3)
