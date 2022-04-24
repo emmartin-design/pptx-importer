@@ -1,163 +1,264 @@
-# To package as EXE run "python -m PyInstaller --onefile --windowed __main__.py" in terminal
 from appJar import gui
-from datetime import datetime
 
-# Internal module pieces
-import variables as v
-import templatereader as tr
-import slidecreator as sc
-import excelreader as er
-import excelreader2 as er2
+from pptx_handlers.template_reader import PPTXTemplate
+from pptx_handlers.pptx_creator import create_report
+from data_handlers.report_outlines import get_outline
+from utilities.utility_functions import replace_chars, country_list
 
-version = v.version
-report_config = v.report_config
+version = 1.0
 
 
-# Allows only XLSX files to be selected
-def xlsxselect():
-    xslxfile = app.openBox(title="Choose Import Data", dirName=None, fileTypes=[('excel worksheets', '*.xlsx')],
-                           parent=None, multiple=False, mode='r')
-    app.setEntry('xlsxfile', xslxfile, callFunction=False)
+class AppJarTab:
+    """
+    This is a parent class for tabs
+    It handles the stop/start commands and basic naming
+    Child classes use "add_tab_content" for specific values
+    """
+
+    def __init__(self, parent, tab_name='Default Name'):
+        self.parent = parent
+        self.parent.app.startTab(tab_name)
+        self.add_tab_contents()
+        self.parent.app.stopTab()
+
+    def add_tab_contents(self):
+        pass
 
 
-def templateselect():
-    template = app.openBox(title="Choose Different Template", dirName=None, fileTypes=[('PowerPoint files', '*.pptx')],
-                           parent=None, multiple=False, mode='r')
-    app.setEntry('template', template, callFunction=False)
+class AppJarLabelFrame:
+    """
+    This is a parent class for label frames
+    It handles the stop/start commands and basic naming
+    Child classes use "add_frame_content" for specific values
+    """
+
+    def __init__(
+            self,
+            parent,
+            title=None,
+            label=None,
+            row=0,
+            column=0,
+            rowspan=0,
+            colspan=0
+    ):
+        self.parent = parent
+        self.parent.app.startLabelFrame(
+            title,
+            hideTitle=title is None,
+            label=label,
+            row=row,
+            column=column,
+            rowspan=rowspan,
+            colspan=colspan
+        )
+        self.add_frame_content()
+        self.parent.app.stopLabelFrame()
+
+    def add_frame_content(self):
+        pass
 
 
-def clear_status():
-    for idx in range(1, 4, 1):
-        app.setStatusbar('', field=idx)
-        app.setStatusbarBg("white", field=idx)
+class DTVValuesLabelFrame(AppJarLabelFrame):
+    """
+    This app initiates and styles the DTV Values frame
+    """
+
+    def __init__(self, parent):
+        super().__init__(
+            parent,
+            title='DTV Vals',
+            label='DirecTV Segment Values',
+            row=0,
+            column=4,
+            rowspan=2
+        )
+
+    def add_frame_content(self):
+        for label_idx, entry_field in enumerate(['QSR', 'FC', 'MID', 'CD']):
+            self.parent.app.addLabel(f'l{label_idx}', entry_field)
+            self.parent.app.addEntry(entry_field)
 
 
-def create_filename():
-    file = app.getEntry('xlsxfile')
-    filename = file.replace('.xlsx', '')
-    v.log_entry('***********************************************')
-    v.log_entry(('Start of import for ' + filename))
-    return file, filename
+class SettingsTab(AppJarTab):
+    """
+    This tab initiates and styles the settings tab
+    """
+    default_template = 'templates/DATAIMPORT.pptx'
+
+    def __init__(self, parent):
+        super().__init__(parent, tab_name='Settings')
+
+    def add_tab_contents(self):
+        self.parent.app.addCheckBox('Use Single-Color Import', row=0, column=0)
+        self.parent.app.setCheckBox('Use Single-Color Import', ticked=True, callFunction=False)
+        self.parent.app.addEntry('template', row=1, column=0, colspan=2)
+        self.parent.app.setEntry('template', self.default_template, callFunction=False)
+        self.parent.app.addButton('Select Alternate Template', self.select_template, row=1, column=3)
+        DTVValuesLabelFrame(self.parent)
+
+    def select_template(self):
+        template = self.parent.app.openBox(
+            title="Choose Different Template",
+            dirName=None,
+            fileTypes=[('PowerPoint files', '*.pptx')],
+            parent=None,
+            multiple=False,
+            mode='r'
+        )
+        self.parent.app.setEntry('template', template, callFunction=False)
 
 
-# Defines what happens when the import button is pressed.
-def press():
-    clear_status()
-    file, filename = create_filename()
+class PowerPointImporterTab(AppJarTab):
+    """
+    This tab initiates and styles the Power Point Importer controls
+    """
+    report_options = [
+        'General Import',
+        'Global Navigator Country Reports',
+        'LTO Scorecard Report',
+        'DirecTV Scorecard',
+        'Quarterly Consumer KPIs',
+    ]
 
-    # Find the report type
-    report_selection = app.getOptionBox('Report Type')
-    report_list = report_config[report_selection]['report list']
-    report_type = report_config[report_selection]['report type']
-    report_suffix = report_config[report_selection]['report suffix']
+    def __init__(self, parent):
+        super().__init__(parent, tab_name='PowerPoint Importer')
 
-    # Read Optional Value inputs
-    dtv_et_totals = []
-    for value in ['QSR', 'FC', 'MID', 'CD']:
-        if app.getEntry(value) != '':
-            dtv_et_totals.append(app.getEntry(value))
-    if len(dtv_et_totals) < 4:
-        if len(dtv_et_totals) > 0:
-            v.log_entry('Must have 0 or 4 DTV values', level='warning', app_holder=app, fieldno=0)
-            return
-        else:
-            dtv_et_totals = None
+    def add_tab_contents(self):
+        self.parent.app.addLabelOptionBox('Report Type', self.report_options, row=0, column=2)
+        self.parent.app.addEntry('xlsx_file', colspan=2, row=1, column=1)
+        self.parent.app.addButton('Select File', self.select_xlsx, row=1, column=3)
+        self.parent.app.addButton('Begin', self.press, row=2, column=1, colspan=3)
+        self.parent.app.setButton('Begin', '     Begin     ')
+
+    def select_xlsx(self):
+        xslx_file = self.parent.app.openBox(
+            title="Choose Import Data",
+            dirName=None, fileTypes=[('excel worksheets', '*.xlsx'), ('excel worksheets', '*.xlsm')],
+            parent=None,
+            multiple=False,
+            mode='r'
+        )
+        self.parent.app.setEntry('xlsx_file', xslx_file, callFunction=False)
+
+    def create_filename(self, report):
+        file = self.parent.app.getEntry('xlsx_file')
+        file = replace_chars(file, ('.xlsx', ''), ('.xlsm', ''))
+        file = f"{file}{'' if report is None else report}.pptx"
+        return file
+
+    def get_entertainment_values(self):
+        dtv_et_totals = [self.parent.app.getEntry(value) for value in ['QSR', 'FC', 'MID', 'CD']]
+        all_are_filled_in = all([x != '' for x in dtv_et_totals])
+        all_are_blank = all([x == '' for x in dtv_et_totals])
+        assert all_are_filled_in or all_are_blank
+        return dtv_et_totals
+
+    def clear_status(self):
+        for idx in range(1, 4):
+            self.parent.app.setStatusbar('', field=idx)
+            self.parent.app.setStatusbarBg("white", field=idx)
+
+    @staticmethod
+    def get_report_list(report_type):
+        parameters = {
+            'General Import': [None],
+            'Global Navigator Country Reports': country_list,
+            'LTO Scorecard Report': [None],
+            'DirecTV Scorecard': [None],
+            'Quarterly Consumer KPIs': [None]  # Update to list of reports
+        }
+        return parameters.get(report_type)
+
+    def press(self):
+        """
+        When the button is pressed, the following functions are called to create the report
+        A new template and report_data class must be instituted for each new report in a list
+        """
+
+        report_type = self.parent.app.getOptionBox('Report Type')
+
+        for report in self.get_report_list(report_type):
+            self.clear_status()
+            self.parent.app.setStatusbar('Reading Template', field=0)
+            template = PPTXTemplate(self.parent.app.getEntry('template'), report_type)
+            entertainment = self.get_entertainment_values()
+            self.parent.app.setStatusbarBg("gray", field=0)
+
+            report_text = "" if report is None else f'{report} '
+            self.parent.app.setStatusbar(f'Reading {report_text}Excel File', field=1)
+            report_data = get_outline(
+                report_type,
+                self.parent.app.getEntry('xlsx_file'),
+                entertainment=entertainment,
+                report_focus=report
+            )
+            self.parent.app.setStatusbarBg("gray", field=1)
+
+            self.parent.app.setStatusbar(f'Creating {report_text}PPTX file', field=2)
+            prs = create_report(report_data, template)
+            self.parent.app.setStatusbarBg("gray", field=2)
+
+            prs.save(self.create_filename(report))
+            self.parent.app.setStatusbar('Report saved.', field=3)
+            self.parent.app.setStatusbarBg("gray", field=3)
 
 
-    # Find and read the template
-    template = app.getEntry('template')
-    v.log_entry('Loading Template', app_holder=app, fieldno=0)
-    template_data = tr.collect_template_data(template, report_type)
+class MainApp:
+    """
+    This controls the overall structure of the app GUI
+    Tabs and frames have separate classes initiated in this parent class
+    """
 
-    # Begin excel reading and report building process
-    v.log_entry('Opening Excel', app_holder=app, fieldno=1)
-    dsave = app.directoryBox(title='Where should report(s) be saved?', dirName=None, parent=None)
+    version = 2.0
 
-    for report in report_list:  # Allows for multiple reports from one excel
-        if report is None:
-            report_name = report_type + '_' + datetime.now().strftime("%B %d, %Y")
-            full_directory = filename + '.pptx'
-        else:
-            report_name = report + report_suffix
-            full_directory = dsave + '/' + report + '.pptx'
+    def __init__(self, main_app):
+        self.app = main_app
 
-        # Find and read the excel file
-        try:
-            if report_type in ['general', 'global']:
-                if app.getCheckBox('Use Single-Color Import'):  # statement will be removed after new selection method
-                    wbdata = er2.data_collector(app, file, report_name, country=report)
-                else:
-                    wbdata = er.readbook(app, file, report_name, country=report)
+        self.set_overall_style()
+        self.set_title_bar()
+        self.add_status_bar()
+        self.add_tabbed_frames()
 
-            elif report_type in ['lto', 'value']:
-                wbdata = er.scorecard(file, report_config[report_selection])
+        self.pptx_tab = None
+        self.xlsx_tab = None
+        self.options_tab = None
 
-            elif report_type == 'dtv':
-                wbdata = er.dtv_reader(file, dtv_et_totals)
+        self.app.go()
 
-            # Create pptx and drop in data
-            sc.data_import(app, template, wbdata, template_data, full_directory, msg='Processing Data')
-            v.log_entry(full_directory + ' saved.')
-            v.log_entry('Import Complete', app_holder=app, fieldno=3)
+    def set_overall_style(self):
+        self.app.setTitle('PowerPoint Importer')
+        self.app.setFont(14)
+        self.app.setBg("white")
+        self.app.setPadding([20, 20])
+        self.app.setInPadding([20, 20])
+        self.app.setStretch('both')
 
-        except PermissionError:
-            v.log_entry('File open cannot save', level='warning', app_holder=app, fieldno=3)
-        '''except ValueError:
-            v.log_entry('Check Report Type', level='warning', app_holder=app, fieldno=3)
-        except IndexError:
-            v.log_entry('Data Selection Error', level='warning', app_holder=app, fieldno=3)
-        except UnboundLocalError:
-            v.log_entry('Check Report Type', level='warning', app_holder=app, fieldno=3)'''
+    def set_title_bar(self):
+        title = f"PowerPoint Data Import\nVersion {self.version} Beta"
+        self.app.addLabel('title', title, row=0, column=0)
+
+    def add_status_bar(self):
+        self.app.addStatusbar(fields=4)
+        self.app.setStatusbarBg("white")
+        self.app.setStatusbarFg("black")
+
+    def add_tabbed_frames(self):
+        app.startTabbedFrame("TabbedFrame", colspan=7, rowspan=1)
+        app.setTabbedFrameBg('TabbedFrame', "white")
+        app.setTabbedFrameTabExpand("TabbedFrame", expand=True)
+
+        # Frame classes here
+        self.pptx_tab = PowerPointImporterTab(self)
+        self.xlsx_tab = None
+        self.options_tab = SettingsTab(self)
+
+        app.stopTabbedFrame()
 
 
-with gui('File Selection', '1000x600') as app:
-    # Assign app object to variables to hold for other modules
-    v.app = app
-    print('Starting Software, please wait...')
-    app.setTitle('PowerPoint Importer')
-    app.setFont(14)
-    app.setBg("white")
-    app.setPadding([20, 20])
-    app.setInPadding([20, 20])
-    app.setStretch('both')
-
-    app.addLabel('title', ('PowerPoint Data Import \n' + version), row=0, column=0)
-    app.addWebLink('View Instructions', "https://cspnet1-my.sharepoint.com/:w:/g/personal/emartin_technomic_com/Eag8lFMxFTlApMXiLQwYudIBDc5CTE3TIWmR6TLr2a41Qg?e=02wf2i", row=0, column=1)
-
-    app.addStatusbar(fields=4)
-    app.setStatusbarBg("white")
-    app.setStatusbarFg("black")
-
-    app.startTabbedFrame("TabbedFrame", colspan=7, rowspan=1)
-    app.setTabbedFrameBg('TabbedFrame', "white")
-    app.setTabbedFrameTabExpand("TabbedFrame", expand=True)
-
-    app.startTab('PowerPoint Importer')
-    app.addLabelOptionBox('Report Type', report_config.keys(), row=0, column=2)
-    app.addEntry('xlsxfile', colspan=2, row=1, column=1)
-    app.addButton('Select File', xlsxselect, row=1, column=3)
-    app.addButton('Begin', press, row=2, column=1, colspan=3)
-    app.setButton('Begin', '     Begin     ')
-    app.stopTab()
-
-    app.startTab('Settings')
-    app.addCheckBox('Use Single-Color Import', row=0, column=0)
-    app.addEntry('template', row=1, column=0, colspan=2)
-    app.setEntry('template', v.default_template, callFunction=False)
-    app.addButton('Select Alternate Template', templateselect, row=1, column=3)
-
-    app.startLabelFrame('DTV Vals', hideTitle=False, label='DirecTV Segment Values (0.0)', row=0, column=4, rowspan=2)
-    app.addLabel("l1", 'QSR')
-    app.addEntry('QSR')
-    app.addLabel("l2", 'FC')
-    app.addEntry('FC')
-    app.addLabel("l3", 'MID')
-    app.addEntry('MID')
-    app.addLabel("l4", 'CD')
-    app.addEntry('CD')
-    app.stopLabelFrame()
-    app.stopTab()
-
-    app.stopTabbedFrame()
-
-    app.go()
+if __name__ == '__main__':
+    """
+    This is what starts the app
+    """
+    with gui('File Selection', '1000x600') as app:
+        MainApp(app)
