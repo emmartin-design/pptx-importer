@@ -20,6 +20,7 @@ def get_layout_by_function(page, template):
         'TT_Primary_Chart': [page.function == 'chart'],
         'TT_Primary_Table': [page.function == 'table'],
         'TT_Primary_Chart_&_Text': [page.function == 'chart and text'],
+        'TT_6_Chart_&_Text': [page.function == 'TT_6_Chart_&_Text'],
         'TT_Chart_Parent_Child': [page.function == 'parent and child'],
         'TT_3_chart_2_table': [page.function == 'dtv_1'],
         'TT_Two_Chart_Equal': [page.function == 'dtv_2'],
@@ -94,6 +95,8 @@ def style_value_axis(chart, chart_meta):
         v_axis.format.line.color.theme_color = chart_meta.chart_style.v_axis_line_color
     if chart_meta.chart_style.v_axis_maximum is not None:
         v_axis.maximum_scale = chart_meta.chart_style.v_axis_maximum
+    if chart_meta.chart_style.v_axis_minimum is not None:
+        v_axis.minimum_scale = chart_meta.chart_style.v_axis_minimum
     if chart_meta.top_box:
         max_val = max(chart_meta.df[f'Top {len(chart_meta.df.columns) - 1} Box'].tolist())
         v_axis.maximum_scale = max_val + 0.1
@@ -125,6 +128,7 @@ def style_overlap_and_gap(chart, chart_meta):
 
 def style_legend(chart, chart_meta):
     chart.has_legend = len(chart_meta.df.columns) > 1 and not chart_meta.chart_style.value_table_legend
+
     if chart.has_legend:
         chart.legend.include_in_layout = False
         chart.legend.position = chart_meta.chart_style.legend_location
@@ -151,12 +155,27 @@ def assign_label_color(chart, chart_meta):
                     point_color.theme_color = get_brand_color('WHITE')
 
 
+def fill_series_or_point(series_or_point, color):
+    series_or_point.format.fill.solid()
+    series_or_point.format.fill.fore_color.theme_color = get_brand_color(color)
+
+
 def style_highlighted_series(chart, chart_meta):
-    if len(chart.series) > 1:
+    emphasis = [str(x).upper() for x in chart_meta.emphasis]
+    de_emphasis = [str(x).upper() for x in chart_meta.de_emphasis]
+    category_names = chart_meta.df.index.tolist()
+    if any([len(chart.series) > 1, chart_meta.highlight]):
         for series in chart.series:
-            if series.name.upper() in ['OVERALL', 'GLOBAL AVERAGE']:
-                series.format.fill.solid()
-                series.format.fill.fore_color.theme_color = get_brand_color('BLACK')
+            if series.name.upper() in emphasis:
+                fill_series_or_point(series, 'BLACK')
+            elif series.name.upper() in de_emphasis:
+                fill_series_or_point(series, 'GRAY')
+            if chart_meta.highlight and len(chart.series) == 1:
+                for category, point in zip(category_names, series.points):
+                    if category.upper() in emphasis:
+                        fill_series_or_point(point, 'BLACK')
+                    elif category.upper() in de_emphasis:
+                        fill_series_or_point(point, 'GRAY')
 
 
 def assign_label_text(chart, chart_meta):
@@ -216,12 +235,17 @@ def style_plots(chart, chart_meta):
 
 def style_chart(graphic_frame, chart_meta):
     chart = graphic_frame.chart
-    style_font(chart, chart_meta)
-    add_chart_title(chart, chart_meta)
-    style_axis(chart, chart_meta)
-    style_overlap_and_gap(chart, chart_meta)
-    style_plots(chart, chart_meta)
-    style_legend(chart, chart_meta)
+    formatting = [
+        style_font,
+        add_chart_title,
+        style_axis,
+        style_overlap_and_gap,
+        style_plots,
+        style_legend
+    ]
+    for f in formatting:
+        f(chart, chart_meta)
+
 
 
 def format_table_cell(

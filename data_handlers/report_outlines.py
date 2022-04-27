@@ -17,9 +17,10 @@ from utilities.utility_functions import (
     get_df_from_dict,
     get_df_from_worksheet,
     get_key_with_matching_parameters,
+    is_null,
     pivot_dataframe,
     replace_chars,
-    school_round,
+    t_round,
     trim_df
 )
 
@@ -34,7 +35,7 @@ def get_outline(report_type, excel_file, **kwargs):
         'Global Navigator Country Reports': GeneralReportData,
         'LTO Scorecard Report': LTOScorecardReportData,
         'DirecTV Scorecard': DirecTVReportData,
-        'Quarterly Consumer KPIs': None,
+        'Quarterly Consumer KPIs': ConsumerKPIReportData,
         # 'Value Scorecard Report': None, -- Retired
         # 'C-Store Consumer KPIs': None,  -- Retired
         # 'Subway Scorecard': None -- Retired
@@ -132,6 +133,8 @@ class PPTXChartMeta:
         self.growth = False
         self.top_box = False
         self.intended_chart_type = intended_chart_type.upper()
+        self.emphasis = ['OVERALL', 'SUM', 'TOTAL', 'GLOBAL AVERAGE']
+        self.de_emphasis = ['OTHER', 'SAME', 'PREFER NOT TO SAY', 'NEVER', 'OTHER: PLEASE SPECIFY']
 
         self.label_text = {}
         self.bases = []
@@ -208,6 +211,8 @@ class PPTXFlexibleChartMeta:
         self.highlight = False
         self.trim_axis = False
         self.growth = False
+        self.emphasis = ['OVERALL', 'SUM', 'TOTAL', 'GLOBAL AVERAGE']
+        self.de_emphasis = ['OTHER', 'SAME', 'PREFER NOT TO SAY', 'NEVER', 'OTHER: PLEASE SPECIFY']
 
         self.sort_by = None
         self.vertical_series = False
@@ -384,7 +389,8 @@ class PPTXFlexibleChartMeta:
         return new_data
 
     def set_command_to_true(self, cell_value):
-        setattr(self, self.command_check_styling(cell_value), True)
+        if cell_value.startswith('*'):
+            setattr(self, self.command_check_styling(cell_value), True)
 
     def set_sort_by_column(self, cell_value):
         self.sort = True
@@ -998,6 +1004,368 @@ class LTOScorecardReportData(ReportData):
             self.get_scorecard_pages(),
             self.get_off_premise_page(),
             self.get_demographics_page(),
+            self.get_end_cap_page()
+        ]
+        for page_list in pages:
+            self.pages.extend(page_list)
+
+
+class ConsumerKPIReportData(ReportData):
+    current_month = 'MARCH 2022'
+    time_period = '(Q1 2021 to Q4 2021)'
+    overall_brand_base = '700'
+    explainer_text_file = 'templates/import_resources/text_files/consumer_kpi_static_text.xlsx'
+
+    demographic_names = {
+        'consumer kpis': {
+            'sex': ['Female', 'Male'],
+            'generation': ['Gen Z', 'Millennial', 'Gen X', 'Boomer', 'Mature'],
+            'ethnicity': ['Asian', 'Black/African American (non-Hispanic/Latino)', 'White (Non-Hispanic/Latino)',
+                          'Hispanic/Latino', 'Other/Mixed'],
+            'income': ['Under-$25K', '$25K-$35K', '$35K-$50K', '$50K-$75K', '$75K-$100K', '$100K-$150K', '$150K+']
+
+        },
+        'c-store consumer kpis': {
+            'sex': ['Female', 'Male'],
+            'generation': ['Generation Z', 'Millennials', 'Generation X', 'Baby Boomers', 'Matures'],
+            'ethnicity': ['Asian', 'Black/African American', 'Caucasian', 'Hispanic', 'Other'],
+            'income': ['Under $25,000', '$25,000 - $34,999', '$35,000 - $49,999', '$50,000 - $74,999',
+                       '$75,000 - $99,999', '$100,000- $150,000', '$150,000 +']
+        }
+
+    }
+
+    def __init__(self, excel_file, log_prefix=None, report_focus=None, verbatims=None, **kwargs):
+        super().__init__(excel_file, log_prefix=None, **kwargs)
+        self.report_focus = report_focus
+        self.overall_df = self.get_data_from_excel(0)
+        self.brand_series = self.overall_df.copy().loc[report_focus]
+        self.alt_visit_names = self.catch_brand_spelling_differences(self.brand_series['VA-1':'VA-6'].values.tolist())
+        self.segment = self.get_segment_code()
+        self.segment_df = self.overall_df.copy().loc[f"{self.segment} Avg"]
+        self.importance_df = self.get_attribute_importance_df()
+        self.verbatims_df = verbatims.set_index(verbatims.columns[0])
+        self.verbatims = self.get_verbatims()
+        self.competitive_df = self.get_competitive_df()
+        self.explainer_df = self.get_data_from_excel(0, self.explainer_text_file, set_index=False)
+        self.archetypes_df = self.get_data_from_excel(1, self.explainer_text_file)
+
+        self.company = self.wb.sheetnames[0]
+        self.get_pages()
+
+    def get_segment_code(self):
+        segment = self.brand_series.at['Seg']
+        segment = segment.replace('Convenience ', 'C-')
+        segment = segment.upper() if 'C-Store' not in segment else segment
+        return segment
+
+    def get_attribute_importance_df(self):
+        df = self.get_data_from_excel(1, set_index=False)
+        if 'C-Store' not in self.segment:
+            value_list = df.copy().loc[self.segment].values.tolist()
+            df = get_df_from_dict({'Attribute': value_list[0:6], 'Importance': value_list[6:]})
+        return df
+
+    def get_competitive_df(self):
+        score_comparison_list = [f'{self.segment} Avg', self.report_focus]
+        for name in self.alt_visit_names:
+            if name in self.overall_df.index:
+                score_comparison_list.append(name)
+            else:
+                raise KeyError(name + ' not found in table. Possible Typo or missing data')
+        return self.overall_df.copy().loc[score_comparison_list]
+
+    def get_verbatims(self):
+        try:
+            brand_index = [x for x in self.verbatims_df.index.tolist() if self.report_focus in x][0]
+            verbatims = self.verbatims_df.loc[brand_index].copy()
+            verb_1 = verbatims[[x for x in verbatims if 'Reason for Rating' in x][0]].tolist()
+            verb_2 = verbatims[[x for x in verbatims if 'Unique Items' in x][0]].tolist()
+            verb_3 = verbatims[[x for x in verbatims if 'Craveable Items' in x][0]].tolist()
+            verbatims = set().union(*[verb_1, verb_2, verb_3])
+            verbatims = [str(x).capitalize() for x in verbatims]
+        except (KeyError, IndexError):
+            print(set(self.verbatims_df.index.tolist()))
+            verbatims = []
+        return verbatims
+
+    @staticmethod
+    def catch_brand_spelling_differences(obj):
+        to_catch = [
+            ('McDonalds', "McDonald's"),
+            ('Circkle K', 'Circle K'),
+            ('Caseys', "Casey's"),
+            ("Casey's", "Casey's General Store"),
+        ]
+        return [replace_chars(x, *to_catch) for x in obj]
+
+    def get_data_from_excel(self, sheet_idx, excel_file=None, set_index=True):
+        excel_file = self.excel_file if excel_file is None else excel_file
+        df = get_df_from_worksheet(excel_file, worksheet=sheet_idx)
+        if set_index:
+            df = df.set_index(df.columns[0])
+        return df
+
+    def get_cover_page(self):
+        cover = PPTXPageMeta(charts=None, function='ignite cover')
+        cover.title = 'Quarterly Competitive Report'
+        cover.copy = {
+            0: [f'Created for {self.report_focus}'],
+            1: [
+                'Brand Health Scorecard',
+                'Overall Satisfaction',
+                'Food & Beverage',
+                'Intent to Return'
+            ]
+        }
+        shape_text = ParagraphInstance(self.current_month.upper())
+        cover.shapes = [ShapeMeta(height=2.19, width=0.4, top=10.65, left=5.0, text=shape_text, fill_color='white')]
+        return [cover]
+
+    def get_demographic_skew_intro(self):
+        demographics = self.demographic_names[f'{"c-store " if "C-Store" in self.segment else ""}consumer kpis']
+        explainer_text = ['About Consumer Tracking'] + self.explainer_df[self.explainer_df.columns[0]].tolist()
+        copy = {0: [], 1: explainer_text, 2: [], 3: [], 4: [' ']}
+
+        copy_keys = [2, 2, 3, 3]
+
+        for idx, (category, demographic_list) in enumerate(demographics.items()):
+            demographics_frame = self.brand_series.copy()[demographic_list].transpose()
+            max_index = demographics_frame.index.max()
+            segment_max_val = f'/b{t_round(self.segment_df.at[max_index], 3):.1%}#'
+
+            copy[copy_keys[idx]].append(f'/h1{t_round(demographics_frame.max(), 3):.1%}')
+
+            income_phrase = '/clearof frequent guests have a household income of #'
+            phrase = income_phrase if idx == 3 else '/clearof frequent guests are#'
+            text = f'{phrase} {max_index} /clearcompared to# {segment_max_val} across the {self.segment} segment'
+            copy[copy_keys[idx]].append(text)
+
+        archetype = self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Name"]
+        copy[0].append(f'{self.segment} guest Eater Archetype skew: {archetype}')
+        copy[0].append(str(self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Description"]))
+        base_size = int(self.brand_series["Base Size"])
+        footer = [
+            f'{self.segment} Base: {base_size} once a month+ {self.segment} consumer, {self.time_period}',
+            'Source: Ignite Consumer'
+        ]
+
+        page = PPTXPageMeta(charts=None, function='intro', footer=footer)
+        page.copy = copy
+        return [page]
+
+    def get_visit_alternatives_copy(self):
+        footer = [
+            f'Base: {int(self.brand_series["Base Size"])} recent {self.report_focus} guests, {self.time_period}',
+            'Source: Ignite Consumer'
+        ]
+        visit_type = 'Visit a c-store or restaurant' if 'C-Store' in self.segment else "Visit a restaurant"
+        copy = {
+            0: [
+                f'{t_round(self.brand_series[visit_type], 3): .1%}',
+                f'would have gone to another restaurant as an alternative to {self.report_focus}'
+            ]
+        }
+        return footer, copy
+
+    def get_visit_alternatives_chart(self):
+        values = self.brand_series['VA1-score':'VA6-score']
+        values.index = self.alt_visit_names
+        alt_visit_values_df = values.to_frame()
+        chart = PPTXChartMeta(alt_visit_values_df, 'COLUMN')
+        chart.chart_title = 'Percent of Consumers who Considered Visiting _________'.upper()
+        chart.decimal_places = 1
+        return [chart]
+
+    def get_visit_alternatives(self):
+        page = PPTXPageMeta(charts=self.get_visit_alternatives_chart(), function='chart and text')
+        page.footer, page.copy = self.get_visit_alternatives_copy()
+        return [page]
+
+    def find_attribute_variation(self, attribute):
+        """
+        This breaks apart the attribute name and looks for alternative name that shares the
+        most similar vocabulary.
+        """
+        attribute_split = attribute.split()
+        columns = self.competitive_df.columns.tolist()
+        match_count = [[x in column for x in attribute_split].count(True) for column in columns]
+        max_match_index = match_count.index(max(match_count))
+        max_match_column = columns[max_match_index]
+        return max_match_column
+
+    def get_attribute_importance_charts(self):
+        charts = []
+        maximum_list = []
+        for attribute in self.importance_df['Attribute'].tolist():
+            attribute_title = self.find_attribute_variation(attribute)
+            attribute_df = self.competitive_df.copy()[[attribute_title]]
+            attribute_df = attribute_df.sort_values(by=attribute_title, ascending=False)
+            attribute_df = attribute_df.fillna(0.0)
+            maximum_list.append(attribute_df.iat[0, 0])
+            chart = PPTXChartMeta(attribute_df, 'BAR')
+            chart.chart_title = attribute_title.upper()
+            chart.decimal_places = 1
+            chart.highlight = True
+            emphasis = f"{self.segment} Avg"
+            chart.emphasis.append(emphasis)
+            chart.de_emphasis.extend([x for x in attribute_df.index if x not in [emphasis, self.report_focus]])
+            charts.append(chart)
+        for chart in charts:
+            chart.chart_style.v_axis_maximum = max(maximum_list) + 0.2
+            chart.chart_style.v_axis_minimum = 0
+        return charts
+
+    def get_attribute_importance_copy(self):
+        footer = [
+            'Q: Based on your recent visit, how would you rate the chain on the following?',
+            f"Base: {self.overall_brand_base} recent guests per brand {self.time_period}"
+            'Showing percentage selecting very good (top-box rating)',
+            'Source: Ignite Consumer'
+        ]
+        copy = {0: [f'/tagTop six visit factors when selecting a {self.segment} for a meal']}
+        importance, attribute = self.importance_df['Importance'].tolist(), self.importance_df['Attribute'].tolist()
+        segment_attribute_list = [[f"/b{t_round(value, 3): .1%}# {name}"] for value, name in zip(importance, attribute)]
+        for lst in segment_attribute_list:
+            copy[0].extend(lst)
+        return footer, copy
+
+    def get_attribute_importance(self):
+        page = PPTXPageMeta(charts=self.get_attribute_importance_charts(), function='TT_6_Chart_&_Text')
+        page.footer, page.copy = self.get_attribute_importance_copy()
+        return [page]
+
+    def product_synonyms(self, text):
+        synonyms = {text}
+        text_sets = [
+            {'Frozen Beverage', 'Icee', 'Slurpee'}
+        ]
+        for x in text_sets:
+            if text in x:
+                synonyms = x
+        return synonyms
+
+    def positive_review_check(self, text):
+        positives = {
+            'Great', 'Friendly', 'really fast', 'helpful', 'delicious', 'tasty', 'high quality', 'the best', 'distinct',
+            'freshest', 'really good', 'My favorite', 'crave', 'craveable'
+        }
+        return any([x.lower() in str(text).lower() for x in positives])
+
+    def get_craveable_verbatims(self, categories):
+        craveable_categories = {x: [] for x in categories}
+        used_verbatims = []
+        for section, section_list in craveable_categories.items():
+            section_verbatims = []
+            for verb in self.verbatims:
+                if all([
+                    any([str(x).lower() in str(verb).lower() for x in self.product_synonyms(section)]),
+                    str(section).lower() != str(verb).lower(),
+                    str(verb).lower() not in used_verbatims,
+                    self.positive_review_check(verb)
+                ]):
+                    section_verbatims.extend([f"/h5{verb}"])
+            section_verbatims = [x for x in section_verbatims if 50 > len(x) > 5]
+            exclamations = [x for x in section_verbatims if '!' in x]
+            for x in exclamations:
+                section_verbatims.remove(x)
+            section_verbatims = exclamations + section_verbatims
+            section_verbatims = section_verbatims[:10]
+            used_verbatims.extend(section_verbatims)
+            craveable_categories[section].extend(section_verbatims)
+        return craveable_categories
+
+    def get_most_cravable_items_copy(self):
+        footer = [
+            f' Base: {int(self.brand_series["Craveable Base"]) :,} recent {self.report_focus} guests {self.time_period}',
+            'Source: Ignite Consumer'
+        ]
+        categories = [x for x in self.brand_series['craveable_item1':'craveable_item5'].tolist() if not is_null(x)]
+        verbatims = self.get_craveable_verbatims(categories)
+        copy = []
+        for key, value in verbatims.items():
+            if len(value) > 0:
+                copy.extend([f"/h2/b{key}"])
+                copy.extend(value)
+        copy = ['No item-specific verbatims found for this brand'] if len(copy) == 0 else copy
+        return footer, copy
+
+    def get_most_craveable_items_chart(self):
+        categories = [x for x in self.brand_series['craveable_item1':'craveable_item5'].tolist()]
+        craveable_values = self.brand_series['score1':f'score{len(categories)}']
+        craveable_values.index = categories
+        craveable_values_df = craveable_values.to_frame()
+        craveable_values_df = craveable_values_df.dropna()
+        chart = PPTXChartMeta(craveable_values_df, 'COLUMN')
+        chart.chart_title = 'Most Craveable Items'.upper()
+        chart.decimal_places = 1
+        return [chart]
+
+    def get_most_craveable_items(self):
+        footer, copy = self.get_most_cravable_items_copy()
+        chart = self.get_most_craveable_items_chart()
+        page = PPTXPageMeta(charts=chart, function='chart and text')
+        page.footer = footer
+        page.copy = copy
+        return [page]
+
+    def get_overall_satisfaction_copy(self):
+        footer = [
+            'Q: Based on your recent visit, how would you rate the chain on the following?',
+            f"Total base: {self.overall_brand_base} recent guests per brand {self.time_period}",
+            'Showing percentage selecting very good (top-box rating)'
+        ]
+        verbatims = [v for v in self.verbatims if self.positive_review_check(v)]
+        verbatims = [x for x in verbatims if 50 > len(x) > 5]
+        exclamations = [x for x in verbatims if '!' in x]
+        verbatims = [x for x in verbatims if '!' not in x]
+        copy = {0: [f"/h5{x}" for x in (exclamations + verbatims)[:10]]}
+        return footer, copy
+
+    def get_overall_satisfaction_chart(self):
+        overall_score_df = self.competitive_df.copy()[['Overall Rating']]
+        overall_score_df = overall_score_df.sort_values(by='Overall Rating', ascending=False)
+        chart = PPTXChartMeta(overall_score_df, 'BAR')
+        chart.chart_title = 'Overall Visit Satisfaction'.upper()
+        chart.decimal_places = 1
+        chart.highlight = True
+        emphasis = f"{self.segment} Avg"
+        chart.emphasis.append(emphasis)
+        chart.de_emphasis.extend([x for x in overall_score_df.index if x not in [emphasis, self.report_focus]])
+        return [chart]
+
+    def get_overall_satisfaction(self):
+            footer, copy = self.get_overall_satisfaction_copy()
+            chart = self.get_overall_satisfaction_chart()
+            page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
+            page.copy = copy
+            return [page]
+
+    @staticmethod
+    def get_end_cap_page():
+        end_cap_page = PPTXPageMeta(charts=None, function='end cap')
+        end_cap_page.copy = {
+            0: ['Robert Byrne', 'Director, Research and Insights' 'rbyrne@technomic.com'],
+            1: ['Britany Trujillo', 'Research Analyst', 'btrujillo@technomic.com'],
+            2: [''],
+            3: ["So. What's Next?", "Need some consumer questions answered? Reach out to our experts."],
+        }
+        end_cap_page.pictures = [
+            'templates/import_resources/headshots/rb.jpg',
+            'templates/import_resources/headshots/bt.jpg',
+            'templates/import_resources/headshots/ignite.png'
+
+        ]
+        return [end_cap_page]
+
+    def get_pages(self):
+        pages = [
+            self.get_cover_page(),
+            self.get_demographic_skew_intro(),
+            self.get_visit_alternatives(),
+            self.get_attribute_importance(),
+            self.get_most_craveable_items(),
+            self.get_overall_satisfaction(),
             self.get_end_cap_page()
         ]
         for page_list in pages:

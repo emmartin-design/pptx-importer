@@ -3,7 +3,7 @@ from appJar import gui
 from pptx_handlers.template_reader import PPTXTemplate
 from pptx_handlers.pptx_creator import create_report
 from data_handlers.report_outlines import get_outline
-from utilities.utility_functions import replace_chars, country_list
+from utilities.utility_functions import replace_chars, country_list, get_df_from_worksheet
 
 version = 1.0
 
@@ -159,16 +159,29 @@ class PowerPointImporterTab(AppJarTab):
             self.parent.app.setStatusbar('', field=idx)
             self.parent.app.setStatusbarBg("white", field=idx)
 
-    @staticmethod
-    def get_report_list(report_type):
+    def get_kpi_report_list(self):
+        try:
+            kpi_df = get_df_from_worksheet(self.parent.app.getEntry('xlsx_file'), 0)
+            report_list = [x for x in kpi_df[kpi_df.columns[0]] if 'Avg' not in x]
+            return report_list
+        except TypeError:
+            return [None]
+
+    def get_report_list(self, report_type):
         parameters = {
             'General Import': [None],
             'Global Navigator Country Reports': country_list,
             'LTO Scorecard Report': [None],
             'DirecTV Scorecard': [None],
-            'Quarterly Consumer KPIs': [None]  # Update to list of reports
+            'Quarterly Consumer KPIs': self.get_kpi_report_list()
         }
         return parameters.get(report_type)
+
+    def get_verbatims(self, excel_file):
+        if 'KPI' in self.parent.app.getOptionBox('Report Type'):
+            self.parent.app.setStatusbar(f'Reading Verbatims', field=1)
+            return get_df_from_worksheet(excel_file, 2)
+        return None
 
     def press(self):
         """
@@ -179,18 +192,22 @@ class PowerPointImporterTab(AppJarTab):
         report_type = self.parent.app.getOptionBox('Report Type')
 
         for report in self.get_report_list(report_type):
+            print(f'Working on the {"" if report is None else report} report'.replace('  ', ' '))
             self.clear_status()
             self.parent.app.setStatusbar('Reading Template', field=0)
             template = PPTXTemplate(self.parent.app.getEntry('template'), report_type)
+            excel_file = self.parent.app.getEntry('xlsx_file')
             entertainment = self.get_entertainment_values()
+            verbatims = self.get_verbatims(excel_file)
             self.parent.app.setStatusbarBg("gray", field=0)
 
             report_text = "" if report is None else f'{report} '
             self.parent.app.setStatusbar(f'Reading {report_text}Excel File', field=1)
             report_data = get_outline(
                 report_type,
-                self.parent.app.getEntry('xlsx_file'),
+                excel_file,
                 entertainment=entertainment,
+                verbatims=verbatims,
                 report_focus=report
             )
             self.parent.app.setStatusbarBg("gray", field=1)

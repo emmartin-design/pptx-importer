@@ -65,7 +65,7 @@ def get_preferred_layouts(report_type):
             'TT_Two_Chart_Equal',
             'TT_Primary_Table_&_Text'
         ],
-        'Consumer Quarterly KPIs': [
+        'Quarterly Consumer KPIs': [
             'IGNITE_TitlePage',
             'TT—Subsection Intro, Main Ideas',
             'TT_Primary_Chart_&_Text',

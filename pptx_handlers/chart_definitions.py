@@ -59,6 +59,7 @@ class DefaultChartStyle:
         self.c_axis_major_gridlines = False
         self.c_axis_minor_gridlines = False
         self.c_axis_maximum = None
+        self.c_axis_minimum = None
         self.c_axis_line_color = get_brand_color('GRAY')
         self.c_axis_label_position = XL_TICK_LABEL_POSITION.NEXT_TO_AXIS
         self.c_axis_major_tick_mark = XL_TICK_MARK.NONE
@@ -68,6 +69,7 @@ class DefaultChartStyle:
         self.v_axis_major_gridlines = False
         self.v_axis_minor_gridlines = False
         self.v_axis_maximum = None
+        self.v_axis_minimum = None
         self.v_axis_line_color = get_brand_color('GRAY')
 
     @property

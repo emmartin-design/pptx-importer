@@ -1,5 +1,7 @@
+import decimal
 import pandas as pd
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 country_list = [
     'Argentina',
@@ -79,6 +81,10 @@ def get_key_with_matching_parameters(parameter_dict):
             return key
 
 
+def is_null(value):
+    return pd.isnull(value)
+
+
 def pivot_dataframe(df, pivot_column):
     try:
         df = df.pivot(columns=pivot_column)
@@ -106,13 +112,18 @@ def trim_df(df, desired_columns: list, new_index=None):
     return new_df
 
 
-def school_round(value, decimal_places=0):
-    try:
-        place = 10 ** decimal_places
-        rounded_value = int(value * place + (0.5 if value >= 0 else -0.5)) / place
-        return int(rounded_value) if rounded_value == int(rounded_value) else rounded_value
-    except TypeError:
-        return value
+def t_round(value, decimal_places: int = 0):
+    """
+    Python rounds thus: round to nearest, ties to even
+    Technomic rounds thus: round half up (school rounding)
+    """
+    decimal.getcontext().rounding = decimal.ROUND_HALF_UP
+    rounded = round(decimal.Decimal(str(value)), decimal_places)
+    if decimal_places == 0:
+        if is_null(value):
+            return 0
+        return int(float(rounded))
+    return float(rounded)
 
 
 def get_column_names(report_type):
