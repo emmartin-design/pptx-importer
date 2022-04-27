@@ -530,7 +530,7 @@ class DirecTVReportData(ReportData):
     current_month = current_time['month']
     current_month_year = format_date(current_year, current_month)
 
-    def __init__(self, excel_file, log_prefix=None, entertainment=None):
+    def __init__(self, excel_file, log_prefix=None, entertainment=None, **kwargs):
         super().__init__(excel_file, log_prefix=None)
         self.overall_df = self.get_report_data()
         self.current_month_str = self.date_manipulator(self.month_variant)
@@ -697,7 +697,6 @@ class DirecTVReportData(ReportData):
         change_df = change_df.transpose()
         table_instance = PPTXChartMeta(df, 'TABLE')
         table_instance.decimal_places = 1
-        table_instance.indexes = change_df
         return [table_instance]
 
     def get_page_3_body_copy(self):
@@ -1060,8 +1059,10 @@ class ConsumerKPIReportData(ReportData):
         return segment
 
     def get_attribute_importance_df(self):
-        df = self.get_data_from_excel(1, set_index=False)
-        if 'C-Store' not in self.segment:
+        if 'C-Store' in self.segment:
+            df = self.get_data_from_excel(1, set_index=False)
+        else:
+            df = self.get_data_from_excel(1, set_index=True)
             value_list = df.copy().loc[self.segment].values.tolist()
             df = get_df_from_dict({'Attribute': value_list[0:6], 'Importance': value_list[6:]})
         return df

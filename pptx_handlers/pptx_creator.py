@@ -71,7 +71,7 @@ def add_chart_title(chart, chart_meta):
     chart.has_title = False
     if chart_meta.chart_title is not None and len(chart_meta.chart_title) > 0:
         title_text = chart_meta.chart_title
-        print(title_text)
+        print(f"Creating {title_text}")
         chart.has_title = True
         insert_text(
             ParagraphInstance(title_text, bold=False, uppercase=True, font_size=11, alignment='center'),
