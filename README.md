@@ -84,6 +84,7 @@ chart styles are predefined in *pptx_handlers.chart_definitions.py*.
 These class instances are sets of predefined, PPTX-specific style information chosed to match Technomic's preferred styles.
 An instance of this class is chosen based on chart type and attached to the Chart Class
 
+
 ### The New PPTX File is Assembled
 *pptx_handlers/pptx_creator.py* iterates over a provided Report Class instance, using the Python-PPTX library to create and style pages and charts.
 It will look at each page's metadata and number of charts to determine the correct layout,
