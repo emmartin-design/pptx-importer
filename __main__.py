@@ -142,9 +142,10 @@ class PowerPointImporterTab(AppJarTab):
         self.parent.app.setEntry('xlsx_file', xslx_file, callFunction=False)
 
     def create_filename(self, report):
+        report = replace_chars(report, ('/', '_'), ('\\', '_'), (',', '_'), ('_', '_'))
         file = self.parent.app.getEntry('xlsx_file')
         file = replace_chars(file, ('.xlsx', ''), ('.xlsm', ''))
-        file = f"{file}{'' if report is None else report}.pptx"
+        file = f"{file}{'' if report is None else f'_{report}'}.pptx"
         return file
 
     def get_entertainment_values(self):
