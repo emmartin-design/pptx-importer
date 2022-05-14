@@ -432,7 +432,10 @@ def insert_page_number(slide):
 
 def add_page_title(slide, title_copy):
     if title_copy is not None and len(title_copy) > 0:
-        slide.shapes.title.text = title_copy
+        try:
+            slide.shapes.title.text = title_copy
+        except AttributeError:
+            pass
 
 
 def add_page_copy(slide, copy):

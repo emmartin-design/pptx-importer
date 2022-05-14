@@ -25,7 +25,7 @@ from utilities.utility_functions import (
 )
 
 
-def get_outline(report_type, excel_file, **kwargs):
+def get_outline(report_type, excel_file, has_page_tags=False, **kwargs):
     """
     Each report type must have an outline class for this to function
     Report type must match report_classes key exactly
@@ -40,7 +40,7 @@ def get_outline(report_type, excel_file, **kwargs):
         # 'C-Store Consumer KPIs': None,  -- Retired
         # 'Subway Scorecard': None -- Retired
     }
-    return report_classes.get(report_type)(excel_file, **kwargs)
+    return report_classes.get(report_type)(excel_file, has_page_tags=has_page_tags, **kwargs)
 
 
 def is_all_strings(lst: list):
@@ -105,9 +105,10 @@ class ReportData:
     Basic parent class for opening the excel file
     """
 
-    def __init__(self, excel_file, log_prefix=None, **kwargs):
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, **kwargs):
         self.excel_file = excel_file
         self.wb = get_workbook(excel_file)
+        self.has_page_tags = has_page_tags
         self.pages = []
 
     def get_report_data(self):
@@ -491,8 +492,8 @@ class PPTXPageMeta:
 
 
 class GeneralReportData(ReportData):
-    def __init__(self, excel_file, log_prefix=None, report_focus=None, **kwargs):
-        super().__init__(excel_file, log_prefix=None, **kwargs)
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, report_focus=None, **kwargs):
+        super().__init__(excel_file, log_prefix, has_page_tags, **kwargs)
         self.report_focus = report_focus
         self.get_pages()
 
@@ -533,8 +534,8 @@ class DirecTVReportData(ReportData):
     current_month = current_time['month']
     current_month_year = format_date(current_year, current_month)
 
-    def __init__(self, excel_file, log_prefix=None, entertainment=None, **kwargs):
-        super().__init__(excel_file, log_prefix=None)
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, entertainment=None, **kwargs):
+        super().__init__(excel_file, log_prefix, has_page_tags)
         self.overall_df = self.get_report_data()
         self.current_month_str = self.date_manipulator(self.month_variant)
         self.previous_month_str = self.date_manipulator(self.month_variant + 1)
@@ -728,11 +729,16 @@ class DirecTVReportData(ReportData):
             page_1_charts = self.get_page_1_charts(account_df)
             page_1 = PPTXPageMeta(charts=page_1_charts, function='dtv_1', title=title, footer=page_one_footer)
             page_2 = PPTXPageMeta(charts=self.get_page_2_charts(account_df), function='dtv_2')
+            if self.has_page_tags:
+                page_1.copy = {0: [title]}
+                page_2.copy = {0: [title]}
             self.pages.extend([page_1, page_2])
             if all([x != '' for x in self.entertainment]):
                 page_3 = PPTXPageMeta(charts=self.get_page_3_charts(account_df), function='dtv_3')
                 page_3.copy = self.get_page_3_body_copy()
                 page_3.footer = self.get_page_3_footer()
+                if self.has_page_tags:
+                    page_3.copy = {0: [title]}
                 self.pages.append(page_3)
 
 
@@ -740,8 +746,8 @@ class LTOScorecardReportData(ReportData):
     index_ranges = [[96, 122], [100, 127], [99, 116], [98, 117], [-99999, 99999]]
     lto_scorecard_text = 'templates/import_resources/text_files/lto_scorecard_text.xlsx'
 
-    def __init__(self, excel_file, log_prefix=None, **kwargs):
-        super().__init__(excel_file, log_prefix=None)
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, **kwargs):
+        super().__init__(excel_file, log_prefix, has_page_tags)
         self.overall_df = self.get_report_data()
         self.company = self.wb.sheetnames[0]
         self.explainer_text_1 = None
@@ -827,20 +833,29 @@ class LTOScorecardReportData(ReportData):
         pages = []
         for explainer in [self.explainer_text_1, self.explainer_text_2, self.explainer_text_3]:
             intro_title = explainer.columns[0]
-            text = explainer[intro_title].tolist()
-            text.insert(0, intro_title)
+            text_lst = explainer[intro_title].tolist()
+            text_lst.insert(0, intro_title)
+            text = {}
+            if self.has_page_tags:
+                text[-1] = ['Methodology and Definitions']
+            text[0] = text_lst
             explainer_page = PPTXPageMeta(charts=None, function='text')
             explainer_page.copy = text
             pages.append(explainer_page)
         return pages
 
-    @staticmethod
-    def get_intro_slide():
+    def get_intro_slide(self):
+        """
+        The order of text in the dictionaries is based on the placeholder's order of addition to the layout in PPT
+        This is a confusing and annoying reality of working with PPT. Text must be added to the dictionary
+        in the order that will drop it into PPT placeholders appropriately.
+        """
         intro = PPTXPageMeta(charts=None, function='intro')
-        intro.copy = {
-            0: ['Recommended Action', 'Details and Qualifiers'],
-            1: ['Proceed Investment', 'N/A', '/h1Proceed Caution', 'N/A', '/h1Stop investment', 'N/A']
-        }
+        intro.copy = {0: ['Recommended Action', 'Details and Qualifiers']}
+        if self.has_page_tags:
+            intro.copy[-1] = ['Menu Concept Screener Summary']
+        intro.copy[1] = ['Proceed Investment', 'N/A', '/h1Proceed Caution', 'N/A', '/h1Stop investment', 'N/A']
+
         return [intro]
 
     def get_benchmark_table(self):
@@ -860,6 +875,8 @@ class LTOScorecardReportData(ReportData):
 
     def get_benchmarking_page(self):
         benchmark = PPTXPageMeta(charts=self.get_benchmark_table(), function='table')
+        if self.has_page_tags:
+            benchmark.copy = {0: ['Concept Scorecards and Benchmarking']}
         benchmark.footer = ['*Index score based on top-box response within daypart-mealpart']
         return [benchmark]
 
@@ -901,6 +918,7 @@ class LTOScorecardReportData(ReportData):
         return charts
 
     def get_index_shapes(self, concept):
+        from_top = 0.75 if self.has_page_tags else 0.46
         index_ranges = {
             'Purchase Intent': [1.22, 0.96],
             'Uniqueness': [1.27, 1.00],
@@ -908,7 +926,7 @@ class LTOScorecardReportData(ReportData):
             'Craveability': [1.17, 0.98]
         }
         index_title = ParagraphInstance('INDEX', font_color='BLACK', font_size=11, alignment='left')
-        shapes = [ShapeMeta(height=0.3, width=9.15, top=0.46, left=3.71, text=index_title, fill_color='GRAY')]
+        shapes = [ShapeMeta(height=0.3, width=9.15, top=from_top, left=3.71, text=index_title, fill_color='GRAY')]
 
         for idx, column in enumerate(['Purchase Intent', 'Uniqueness', 'Draw', 'Craveability']):
             index_value = self.overall_df.copy().at[concept, column]
@@ -919,24 +937,25 @@ class LTOScorecardReportData(ReportData):
             }
             color = get_key_with_matching_parameters(color_parameters)
             text = ParagraphInstance(f'{(index_value * 100):.0f}', font_color=color, font_size=11)
-            shapes.append(ShapeMeta(height=0.3, width=0.5, top=0.46, left=[4.7, 6.9, 9.06, 11.27][idx], text=text))
+            shapes.append(ShapeMeta(height=0.3, width=0.5, top=from_top, left=[4.7, 6.9, 9.06, 11.27][idx], text=text))
         return shapes
 
     def get_scorecard_pages(self):
         pages = []
         for concept_idx, concept in enumerate(self.overall_df.index):
             page = PPTXPageMeta(charts=self.get_scorecard_charts(concept), function='lto scorecard')
-            page.copy = {
-                0: [
-                    f"${self.overall_df.at[concept, 'Median willingness to pay']:.2f}",
-                    'Median willingness to pay'
-                ],
-                1: [
-                    f'/h2/tag{self.overall_df.iloc[concept_idx, 0].upper()}',
-                    f'/h1{concept}',
-                    str(self.overall_df.iloc[concept_idx, 1])
-                ]
-            }
+            page.copy = {}
+            if self.has_page_tags:
+                page.copy[-1] = ['Concept Scorecards and Benchmarking']
+            page.copy[0] = [
+                f"${self.overall_df.at[concept, 'Median willingness to pay']:.2f}",
+                'Median willingness to pay'
+            ]
+            page.copy[1] = [
+                f'/h2/tag{self.overall_df.iloc[concept_idx, 0].upper()}',
+                f'/h1{concept}',
+                str(self.overall_df.iloc[concept_idx, 1])
+            ]
             page.footer = [
                 'Definitions, 2nd Box and Top Box respectively:',
                 '/bPurchase Intent#: Likely or very likely to purchase',
@@ -961,6 +980,9 @@ class LTOScorecardReportData(ReportData):
             'Base: potential purchasers (top 2 box purchase intent)'
         ]
         off_premise_page = PPTXPageMeta(charts=self.get_off_premise_table(), function='table', footer=footer)
+
+        if self.has_page_tags:
+            off_premise_page.copy = {-1: ['Concept Scorecards and Benchmarking']}
         return [off_premise_page]
 
     def get_demographics_table(self):
@@ -976,21 +998,25 @@ class LTOScorecardReportData(ReportData):
         return [demographics_table]
 
     def get_demographics_page(self):
-        copy = [f'/h2{idx}. {concept}' for idx, concept in enumerate(self.overall_df.index, 1)]
+        copy = {}
+        if self.has_page_tags:
+            copy[-1] = ['Concept Scorecards and Benchmarking']
+        copy[0] = [f'/h2{idx}. {concept}' for idx, concept in enumerate(self.overall_df.index, 1)]
         footer = ['Potential purchasers=top 2 box purchase intent']
         demographics_page = PPTXPageMeta(self.get_demographics_table(), function='table and text', footer=footer)
         demographics_page.copy = copy
         return [demographics_page]
 
-    @staticmethod
-    def get_end_cap_page():
+    def get_end_cap_page(self):
         end_cap_page = PPTXPageMeta(charts=None, function='end cap')
-        end_cap_page.copy = {
-            0: ['Alexis Joyce', 'Research Analyst', 'ajoyce@technomic.com'],
-            1: ['Mary Clare Metherd', 'Research Analyst', 'mmetherd@technomic.com'],
-            2: [''],
-            3: ["So. What's Next?", "Need some more LTO guidance? Reach out to our experts."],
-        }
+        copy = {}
+        if self.has_page_tags:
+            copy[-1] = ['Concept Scorecards and Benchmarking']
+        copy[0] = ['Alexis Joyce', 'Research Analyst', 'ajoyce@technomic.com']
+        copy[1] = ['Mary Clare Metherd', 'Research Analyst', 'mmetherd@technomic.com']
+        copy[2] = ['']
+        copy[3] = ["So. What's Next?", "Need some more LTO guidance? Reach out to our experts."]
+        end_cap_page.copy = copy
         end_cap_page.pictures = [
             'templates/import_resources/headshots/aj.jpg',
             'templates/import_resources/headshots/mcm.jpg'
@@ -1037,8 +1063,8 @@ class ConsumerKPIReportData(ReportData):
 
     }
 
-    def __init__(self, excel_file, log_prefix=None, report_focus=None, verbatims=None, **kwargs):
-        super().__init__(excel_file, log_prefix=None, **kwargs)
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, report_focus=None, verbatims=None, **kwargs):
+        super().__init__(excel_file, log_prefix, has_page_tags, **kwargs)
         self.report_focus = report_focus
         self.overall_df = self.get_data_from_excel(0)
         self.brand_series = self.overall_df.copy().loc[report_focus]
@@ -1127,12 +1153,18 @@ class ConsumerKPIReportData(ReportData):
         return [cover]
 
     def get_demographic_skew_intro(self):
-        demographics = self.demographic_names[f'{"c-store " if "C-Store" in self.segment else ""}consumer kpis']
-        explainer_text = ['About Consumer Tracking'] + self.explainer_df[self.explainer_df.columns[0]].tolist()
-        copy = {0: [], 1: explainer_text, 2: [], 3: [], 4: [' ']}
+        archetype = self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Name"]
+        copy = {0: [
+            f'{self.segment} guest Eater Archetype skew: {archetype}',
+            str(self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Description"])
+        ]}
+        if self.has_page_tags:
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+        copy[1] = ['About Consumer Tracking'] + self.explainer_df[self.explainer_df.columns[0]].tolist()
+        copy[2], copy[3], copy[4] = [], [], [' ']
 
         copy_keys = [2, 2, 3, 3]
-
+        demographics = self.demographic_names[f'{"c-store " if "C-Store" in self.segment else ""}consumer kpis']
         for idx, (category, demographic_list) in enumerate(demographics.items()):
             demographics_frame = self.brand_series.copy()[demographic_list].transpose()
             max_index = demographics_frame.index.max()
@@ -1145,9 +1177,6 @@ class ConsumerKPIReportData(ReportData):
             text = f'{phrase} {max_index} /clearcompared to# {segment_max_val} across the {self.segment} segment'
             copy[copy_keys[idx]].append(text)
 
-        archetype = self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Name"]
-        copy[0].append(f'{self.segment} guest Eater Archetype skew: {archetype}')
-        copy[0].append(str(self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Description"]))
         base_size = int(self.brand_series["Base Size"])
         footer = [
             f'{self.segment} Base: {base_size} once a month+ {self.segment} consumer, {self.time_period}',
@@ -1164,12 +1193,13 @@ class ConsumerKPIReportData(ReportData):
             'Source: Ignite Consumer'
         ]
         visit_type = 'Visit a c-store or restaurant' if 'C-Store' in self.segment else "Visit a restaurant"
-        copy = {
-            0: [
-                f'{t_round(self.brand_series[visit_type], 3): .1%}',
-                f'would have gone to another restaurant as an alternative to {self.report_focus}'
-            ]
-        }
+        copy = {}
+        if self.has_page_tags:
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+        copy[0] = [
+            f'{t_round(self.brand_series[visit_type], 3): .1%}',
+            f'would have gone to another restaurant as an alternative to {self.report_focus}'
+        ]
         return footer, copy
 
     def get_visit_alternatives_chart(self):
@@ -1227,7 +1257,10 @@ class ConsumerKPIReportData(ReportData):
             'Showing percentage selecting very good (top-box rating)',
             'Source: Ignite Consumer'
         ]
-        copy = {0: [f'/tagTop six visit factors when selecting a {self.segment} for a meal']}
+        copy = {}
+        if self.has_page_tags:
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+        copy[0] = [f'/tagTop six visit factors when selecting a {self.segment} for a meal']
         importance, attribute = self.importance_df['Importance'].tolist(), self.importance_df['Attribute'].tolist()
         segment_attribute_list = [[f"/b{t_round(value, 3): .1%}# {name}"] for value, name in zip(importance, attribute)]
         for lst in segment_attribute_list:
@@ -1286,12 +1319,15 @@ class ConsumerKPIReportData(ReportData):
         ]
         categories = [x for x in self.brand_series['craveable_item1':'craveable_item5'].tolist() if not is_null(x)]
         verbatims = self.get_craveable_verbatims(categories)
-        copy = []
+        copy = {}
+        if self.has_page_tags:
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+        copy[0] = []
         for key, value in verbatims.items():
             if len(value) > 0:
                 copy.extend([f"/h2/b{key}"])
                 copy.extend(value)
-        copy = ['No item-specific verbatims found for this brand'] if len(copy) == 0 else copy
+        copy[0] = ['No item-specific verbatims found for this brand'] if len(copy[0]) == 0 else copy
         return footer, copy
 
     def get_most_craveable_items_chart(self):
@@ -1323,7 +1359,10 @@ class ConsumerKPIReportData(ReportData):
         verbatims = [x for x in verbatims if 50 > len(x) > 5]
         exclamations = [x for x in verbatims if '!' in x]
         verbatims = [x for x in verbatims if '!' not in x]
-        copy = {0: [f"/h5{x}" for x in (exclamations + verbatims)[:10]]}
+        copy = {}
+        if self.has_page_tags:
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+        copy[0] = [f"/h5{x}" for x in (exclamations + verbatims)[:10]]
         return footer, copy
 
     def get_overall_satisfaction_chart(self):
@@ -1339,21 +1378,23 @@ class ConsumerKPIReportData(ReportData):
         return [chart]
 
     def get_overall_satisfaction(self):
-            footer, copy = self.get_overall_satisfaction_copy()
-            chart = self.get_overall_satisfaction_chart()
-            page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
-            page.copy = copy
-            return [page]
+        footer, copy = self.get_overall_satisfaction_copy()
+        chart = self.get_overall_satisfaction_chart()
+        page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
+        page.copy = copy
+        return [page]
 
-    @staticmethod
-    def get_end_cap_page():
+    def get_end_cap_page(self):
         end_cap_page = PPTXPageMeta(charts=None, function='end cap')
-        end_cap_page.copy = {
-            0: ['Robert Byrne', 'Director, Research and Insights' 'rbyrne@technomic.com'],
-            1: ['Britany Trujillo', 'Manager, Research & Insights', 'btrujillo@technomic.com'],
-            2: [''],
-            3: ["So. What's Next?", "Need some consumer questions answered? Reach out to our experts."],
-        }
+        end_cap_page.copy = {}
+        if self.has_page_tags:
+            end_cap_page.copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+
+        end_cap_page.copy[0] = ['Robert Byrne', 'Director, Research and Insights' 'rbyrne@technomic.com']
+        end_cap_page.copy[1] = ['Britany Trujillo', 'Manager, Research & Insights', 'btrujillo@technomic.com']
+        end_cap_page.copy[2] = ['']
+        end_cap_page.copy[3] = ["So. What's Next?", "Need some consumer questions answered? Reach out to our experts."]
+
         end_cap_page.pictures = [
             'templates/import_resources/headshots/rb.jpg',
             'templates/import_resources/headshots/bt.jpg',

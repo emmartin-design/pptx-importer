@@ -197,6 +197,7 @@ class PowerPointImporterTab(AppJarTab):
             report_data = get_outline(
                 report_type,
                 excel_file,
+                has_page_tags=use_old_template,
                 entertainment=entertainment,
                 verbatims=verbatims,
                 report_focus=report
