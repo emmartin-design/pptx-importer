@@ -84,35 +84,23 @@ class SettingsTab(AppJarTab):
     """
     This tab initiates and styles the settings tab
     """
-    default_template = 'templates/DATAIMPORT.pptx'
 
     def __init__(self, parent):
         super().__init__(parent, tab_name='Settings')
 
     def add_tab_contents(self):
-        self.parent.app.addCheckBox('Use Single-Color Import', row=0, column=0)
-        self.parent.app.setCheckBox('Use Single-Color Import', ticked=True, callFunction=False)
-        self.parent.app.addEntry('template', row=1, column=0, colspan=2)
-        self.parent.app.setEntry('template', self.default_template, callFunction=False)
-        self.parent.app.addButton('Select Alternate Template', self.select_template, row=1, column=3)
+        self.parent.app.addCheckBox('Use Old Template', row=0, column=0)
+        self.parent.app.setCheckBox('Use Old Template', ticked=True, callFunction=False)
         DTVValuesLabelFrame(self.parent)
-
-    def select_template(self):
-        template = self.parent.app.openBox(
-            title="Choose Different Template",
-            dirName=None,
-            fileTypes=[('PowerPoint files', '*.pptx')],
-            parent=None,
-            multiple=False,
-            mode='r'
-        )
-        self.parent.app.setEntry('template', template, callFunction=False)
 
 
 class PowerPointImporterTab(AppJarTab):
     """
     This tab initiates and styles the Power Point Importer controls
     """
+    default_template = 'templates/DATAIMPORT.pptx'
+    old_template = 'templates/OLD_TEMPLATE.pptx'
+
     report_options = [
         'General Import',
         'Global Navigator Country Reports',
@@ -196,7 +184,9 @@ class PowerPointImporterTab(AppJarTab):
             print(f'Working on the {"" if report is None else report} report'.replace('  ', ' '))
             self.clear_status()
             self.parent.app.setStatusbar('Reading Template', field=0)
-            template = PPTXTemplate(self.parent.app.getEntry('template'), report_type)
+            use_old_template = self.parent.app.getCheckBox('Use Old Template')
+            template_file = self.old_template if use_old_template else self.default_template
+            template = PPTXTemplate(template_file, report_type)
             excel_file = self.parent.app.getEntry('xlsx_file')
             entertainment = self.get_entertainment_values()
             verbatims = self.get_verbatims(excel_file)
@@ -220,6 +210,7 @@ class PowerPointImporterTab(AppJarTab):
             prs.save(self.create_filename(report))
             self.parent.app.setStatusbar('Report saved.', field=3)
             self.parent.app.setStatusbarBg("gray", field=3)
+            print('Report Complete')
 
 
 class MainApp:

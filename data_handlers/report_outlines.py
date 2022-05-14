@@ -373,6 +373,7 @@ class PPTXFlexibleChartMeta:
         Receives a list of lists and converts it into a dictionary for later dataframe conversion
         """
         new_data = {}
+        vertical_series_modifier = 1
         for list_idx, list_of_data in enumerate([x for x in self.raw_data if len(x) > 0]):
             if is_all_strings(list_of_data):
                 new_data[f'categories_{list_idx}'] = [remove_parentheticals(x) for x in list_of_data]
@@ -382,9 +383,10 @@ class PPTXFlexibleChartMeta:
                 try:
                     base_value = [x for x in list_of_data if 'Base: ' in str(x)][0].replace('Base: ', '')
                     self.bases.append(base_value)
-                    self.base_col_idxs.append((list_idx - 1))
+                    self.base_col_idxs.append((list_idx - vertical_series_modifier))
                 except IndexError:
                     pass
+            vertical_series_modifier = 2 if 'categories_1' in new_data.keys() else 1
         new_data = reformat_vertical_series(new_data)
         return new_data
 
@@ -468,9 +470,10 @@ class PPTXPageMeta:
     def get_footer(self):
         footer = []
         for chart in self.charts:
-            bases = [f'{chart.df.columns[idx]} base: {base}' for idx, base in zip(chart.base_col_idxs, chart.bases)]
             if len(chart.bases) == 1:
                 bases = [f'Base: {chart.bases[0]}']
+            else:
+                bases = [f'{chart.df.columns[idx]} base: {base}' for idx, base in zip(chart.base_col_idxs, chart.bases)]
             footer.append(', '.join(bases))
             if chart.chart_question is not None:
                 footer.append(f'Q; {chart.chart_question}')
@@ -1347,7 +1350,7 @@ class ConsumerKPIReportData(ReportData):
         end_cap_page = PPTXPageMeta(charts=None, function='end cap')
         end_cap_page.copy = {
             0: ['Robert Byrne', 'Director, Research and Insights' 'rbyrne@technomic.com'],
-            1: ['Britany Trujillo', 'Research Analyst', 'btrujillo@technomic.com'],
+            1: ['Britany Trujillo', 'Manager, Research & Insights', 'btrujillo@technomic.com'],
             2: [''],
             3: ["So. What's Next?", "Need some consumer questions answered? Reach out to our experts."],
         }
@@ -1355,7 +1358,6 @@ class ConsumerKPIReportData(ReportData):
             'templates/import_resources/headshots/rb.jpg',
             'templates/import_resources/headshots/bt.jpg',
             'templates/import_resources/headshots/ignite.png'
-
         ]
         return [end_cap_page]
 

@@ -247,7 +247,6 @@ def style_chart(graphic_frame, chart_meta):
         f(chart, chart_meta)
 
 
-
 def format_table_cell(
         cell,
         color=None,
