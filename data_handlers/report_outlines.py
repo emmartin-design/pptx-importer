@@ -163,7 +163,7 @@ class PPTXFlexibleChartMeta:
     Only one chart per tab is possible
     Only data points formatted as floats or percents will be picked up.
     """
-    title_cell_color = [4]  # Theme color index 4
+    title_cell_color = [4, 'FF4472C4']  # Theme color index 4
     base_cell_color = [5, 'FFED7D31']  # Theme color index 4 or hex value
     data_cell_color = [7, 8, 9, 'FFFFC000']  # Mix of indices and hex
 
@@ -471,8 +471,12 @@ class PPTXPageMeta:
     def get_footer(self):
         footer = []
         for chart in self.charts:
+            print(f'Processing {chart.worksheet_name}')
             if len(chart.bases) == 1:
                 bases = [f'Base: {chart.bases[0]}']
+            elif chart.transpose:
+                index = chart.df.index.tolist()
+                bases = [f'{index[idx]} base: {base}' for idx, base in zip(chart.base_col_idxs, chart.bases)]
             else:
                 bases = [f'{chart.df.columns[idx]} base: {base}' for idx, base in zip(chart.base_col_idxs, chart.bases)]
             footer.append(', '.join(bases))
