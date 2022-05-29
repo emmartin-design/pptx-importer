@@ -34,6 +34,9 @@ def get_layout_by_function(page, template):
 
 
 def get_layout_by_placeholders(page, template):
+    print(page.chart_count, page.table_count)
+    for chart in page.charts:
+        print(chart.chart_title)
     for layout in template.layouts:
         if all([
             layout.chart_count == page.chart_count,
@@ -298,16 +301,15 @@ def apply_chart_style(shape, chart_meta):
     tbl[0][-1].text = style_id
 
 
-def format_table(shape, chart_meta):
+def format_table(shape, table_height, chart_meta):
     """
     914400 is the number by which shape sizes are divided to get the number of inches
     """
     table = shape.table
-    table_height = shape.height / 914400
-    table_height = 5.95 if table_height > 4 else table_height
     table.first_row = False
     table.horz_banding = chart_meta.chart_style.h_banding and not chart_meta.heat_map
     table.vert_banding = chart_meta.chart_style.v_banding and not chart_meta.heat_map
+    table_height = 5.95 if table_height > 4 else table_height
     row_height = round((table_height), 2) / len(table.rows)
     col_width = ((shape.width / 914400) / (len(table.columns) + 1))
 
@@ -344,16 +346,19 @@ def get_cell_shade(chart_meta, cell_index):
     return get_key_with_matching_parameters(parameters)
 
 
-def get_cell_font_color(chart_meta, cell_val, col_idx, highlight):
+def get_cell_font_color(chart_meta, cell_val, col_idx, row_idx, highlight):
     index_pair = chart_meta.indexes[col_idx]
+    change_val = 0 if chart_meta.change_from_previous is None else chart_meta.change_from_previous.iat[row_idx, col_idx]
     parameters = {
         'green': [
             chart_meta.growth and cell_val > 0,
             cell_val > index_pair[1],
+            change_val > 0
         ],
         'orange': [
             chart_meta.growth and cell_val < 0,
             cell_val < index_pair[0],
+            change_val < 0
         ],
         'white': [highlight],
         'black': [True]
@@ -372,7 +377,7 @@ def add_column_values(table, title_displacement, chart_meta):
             cell_val = chart_meta.df.iat[row_idx, col_idx]
             cell_index = round(cell_val / chart_meta.df[col].mean(), 2)
             highlight = chart_meta.highlight and cell_val == row_max
-            font_color = get_cell_font_color(chart_meta, cell_val, col_idx, highlight)
+            font_color = get_cell_font_color(chart_meta, cell_val, col_idx, row_idx, highlight)
             if '%' in chart_meta.number_format:
                 cell_format = ''.join(["{:.", str(chart_meta.decimal_places), "%}"])
                 cell_format = cell_format.format(cell_val)
@@ -391,16 +396,17 @@ def add_column_values(table, title_displacement, chart_meta):
 
 def insert_table(chart_meta, placeholder):
     title_displacement = 1 if chart_meta.chart_title != chart_meta.chart_question else 0
-
+    table_height = placeholder.height / 914400
     shape = placeholder.insert_table(
         rows=(len(chart_meta.df.index) + 1 + title_displacement),
         cols=len(chart_meta.df.columns) + 1
     )
     table = shape.table
+
     add_top_left_cell(table, chart_meta)
     add_column_titles(table, title_displacement, chart_meta)
     add_column_values(table, title_displacement, chart_meta)
-    format_table(shape, chart_meta)
+    format_table(shape, table_height, chart_meta)
 
 
 def insert_chart(chart_meta, placeholder):

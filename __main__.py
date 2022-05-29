@@ -169,7 +169,11 @@ class PowerPointImporterTab(AppJarTab):
     def get_verbatims(self, excel_file):
         if 'KPI' in self.parent.app.getOptionBox('Report Type'):
             self.parent.app.setStatusbar(f'Reading Verbatims', field=1)
-            return get_df_from_worksheet(excel_file, 2)
+            verbatims = {
+                'overall satisfaction': get_df_from_worksheet(excel_file, 2),
+                'craveability': get_df_from_worksheet(excel_file, 3)
+            }
+            return verbatims
         return None
 
     def press(self):
@@ -179,17 +183,17 @@ class PowerPointImporterTab(AppJarTab):
         """
 
         report_type = self.parent.app.getOptionBox('Report Type')
+        use_old_template = self.parent.app.getCheckBox('Use Old Template')
+        template_file = self.old_template if use_old_template else self.default_template
+        excel_file = self.parent.app.getEntry('xlsx_file')
+        verbatims = self.get_verbatims(excel_file)
 
         for report in self.get_report_list(report_type):
+            template = PPTXTemplate(template_file, report_type)
             print(f'Working on the {"" if report is None else report} report'.replace('  ', ' '))
             self.clear_status()
             self.parent.app.setStatusbar('Reading Template', field=0)
-            use_old_template = self.parent.app.getCheckBox('Use Old Template')
-            template_file = self.old_template if use_old_template else self.default_template
-            template = PPTXTemplate(template_file, report_type)
-            excel_file = self.parent.app.getEntry('xlsx_file')
             entertainment = self.get_entertainment_values()
-            verbatims = self.get_verbatims(excel_file)
             self.parent.app.setStatusbarBg("gray", field=0)
 
             report_text = "" if report is None else f'{report} '

@@ -133,6 +133,7 @@ class PPTXChartMeta:
         self.heat_map = False
         self.growth = False
         self.top_box = False
+        self.transpose = False
         self.intended_chart_type = intended_chart_type.upper()
         self.emphasis = ['OVERALL', 'SUM', 'TOTAL', 'GLOBAL AVERAGE']
         self.de_emphasis = ['OTHER', 'SAME', 'PREFER NOT TO SAY', 'NEVER', 'OTHER: PLEASE SPECIFY']
@@ -144,6 +145,7 @@ class PPTXChartMeta:
 
         self.chart_style = get_chart_type(self.intended_chart_type, self.preferred_color)
         self.indexes = [[-99999, 99999] for _ in self.df.columns]
+        self.change_from_previous = None
         self.notes = []
 
     @property
@@ -231,6 +233,7 @@ class PPTXFlexibleChartMeta:
         self.remove_command_conflicts()
         self.update_bases()
         self.indexes = [[-99999, 99999] for _ in self.df.columns]
+        self.change_from_previous = None
 
         self.chart_style = get_chart_type(self.intended_chart_type, self.preferred_color)
 
@@ -288,7 +291,9 @@ class PPTXFlexibleChartMeta:
             self.df.index.name = None
             self.drop_base()
         except ValueError as e:
-            self.notes.append(f'Could not pivot vertical series: {e}')
+            index = self.df.index.tolist()
+            duplicates = [x for x in index if index.count(x) == max([index.count(x) for x in index], key=index.count)]
+            self.notes.append(f'Could not pivot vertical series: {e}:, {duplicates}')
             self.notes.append(self.df.to_string())
             self.df = get_df_from_dict(get_error_dict())
 
@@ -359,8 +364,8 @@ class PPTXFlexibleChartMeta:
                 cell_value = self.worksheet[cell.coordinate].value
                 cell_is_merged = type(cell).__name__ == 'MergedCell'
                 if cell_value is not None:
-                    first_string_value = self.get_first_string_in_col(cell_value, cell_is_merged, first_string_value)
                     data_point = self.process_data_colors(cell, cell_value)
+                    first_string_value = self.get_first_string_in_col(cell_value, cell_is_merged, first_string_value)
                     if data_point is not None:
                         col_data.append(data_point)
                 self.cell_cache = cell_value
@@ -377,7 +382,8 @@ class PPTXFlexibleChartMeta:
         vertical_series_modifier = 1
         for list_idx, list_of_data in enumerate([x for x in self.raw_data if len(x) > 0]):
             if is_all_strings(list_of_data):
-                new_data[f'categories_{list_idx}'] = [remove_parentheticals(x) for x in list_of_data]
+                categories = [remove_parentheticals(x) for x in list_of_data]
+                new_data[f'categories_{list_idx}'] = [x for x in categories if 'BASE: ' not in x.upper()]
             else:
                 first_string_instance = [x for x in list_of_data if isinstance(x, str)][0]
                 new_data[first_string_instance] = [x for x in list_of_data if isinstance(x, float)]
@@ -700,10 +706,12 @@ class DirecTVReportData(ReportData):
             'Chg Appropriateness for the variety of occasions'
         ]
         df = trim_df(account_df, column_list, 'Competitor Brand')
-        change_df = trim_df(account_df, change_column_list, 'Competitor Brand')
+        change_from_previous_df = trim_df(account_df, change_column_list, 'Competitor Brand')
+        change_from_previous_df.columns = df.columns
         df = df.transpose()
-        change_df = change_df.transpose()
+        change_from_previous_df = change_from_previous_df.transpose()
         table_instance = PPTXChartMeta(df, 'TABLE')
+        table_instance.change_from_previous = change_from_previous_df
         table_instance.decimal_places = 1
         return [table_instance]
 
@@ -739,10 +747,11 @@ class DirecTVReportData(ReportData):
             self.pages.extend([page_1, page_2])
             if all([x != '' for x in self.entertainment]):
                 page_3 = PPTXPageMeta(charts=self.get_page_3_charts(account_df), function='dtv_3')
-                page_3.copy = self.get_page_3_body_copy()
-                page_3.footer = self.get_page_3_footer()
+                page_3.copy = {}
                 if self.has_page_tags:
-                    page_3.copy = {0: [title]}
+                    page_3.copy = {-1: [title]}
+                page_3.copy[0] = self.get_page_3_body_copy()
+                page_3.footer = self.get_page_3_footer()
                 self.pages.append(page_3)
 
 
@@ -1051,10 +1060,20 @@ class ConsumerKPIReportData(ReportData):
     demographic_names = {
         'consumer kpis': {
             'sex': ['Female', 'Male'],
-            'generation': ['Gen Z', 'Millennial', 'Gen X', 'Boomer', 'Mature'],
-            'ethnicity': ['Asian', 'Black/African American (non-Hispanic/Latino)', 'White (Non-Hispanic/Latino)',
-                          'Hispanic/Latino', 'Other/Mixed'],
-            'income': ['Under-$25K', '$25K-$35K', '$35K-$50K', '$50K-$75K', '$75K-$100K', '$100K-$150K', '$150K+']
+            'generation': ['Generation Z', 'Millennials', 'Generation X', 'Baby Boomers', 'Matures'],
+            'ethnicity': ['Female', 'Male', 'Generation Z', 'Millennials', 'Generation X', 'Baby Boomers', 'Matures',
+                          'Asian', 'Black/African American', 'Hispanic/Latino', 'Other Ethnicity',
+                          'White (non-Hispanic/Latino)', 'Under $25K', '$25K - $50K', '$50K - $75K', '$75K - $100K',
+                          '$100K+'],
+            'income': ['Under $25K', '$25K - $50K', '$50K - $75K', '$75K - $100K', '$100K+']
+
+        },
+        'canada consumer kpis': {
+            'sex': ['Female', 'Male'],
+            'generation': ['Generation Z', 'Millennials', 'Generation X', 'Baby Boomers', 'Matures'],
+            'ethnicity': ['Black/African American', 'Chinese', 'Hispanic/Latino', 'Other Asian', 'Other Ethnicity',
+                          'South Asian', 'White (non-Hispanic/Latino)'],
+            'income': ['Under $25K', '$25K - $50K', '$50K - $75K', '$75K - $100K', '$100K+']
 
         },
         'c-store consumer kpis': {
@@ -1062,22 +1081,25 @@ class ConsumerKPIReportData(ReportData):
             'generation': ['Generation Z', 'Millennials', 'Generation X', 'Baby Boomers', 'Matures'],
             'ethnicity': ['Asian', 'Black/African American', 'Caucasian', 'Hispanic', 'Other'],
             'income': ['Under $25,000', '$25,000 - $34,999', '$35,000 - $49,999', '$50,000 - $74,999',
-                       '$75,000 - $99,999', '$100,000- $150,000', '$150,000 +']
+                       '$75,000 - $99,999', '$100,000- $150,000']
         }
 
     }
 
-    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, report_focus=None, verbatims=None, **kwargs):
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, verbatims=None, report_focus=None, **kwargs):
         super().__init__(excel_file, log_prefix, has_page_tags, **kwargs)
         self.report_focus = report_focus
         self.overall_df = self.get_data_from_excel(0)
         self.brand_series = self.overall_df.copy().loc[report_focus]
-        self.alt_visit_names = self.catch_brand_spelling_differences(self.brand_series['VA-1':'VA-6'].values.tolist())
+        self.colloquial_brand = self.overall_df.at[report_focus, 'Brand Name']
+        self.alt_visit_names = self.brand_series['VA-1':'VA-6'].values.tolist()
         self.segment = self.get_segment_code()
-        self.segment_df = self.overall_df.copy().loc[f"{self.segment} Avg"]
+        self.segment_df = self.get_segment_df()
+        self.abbreviation_used = 'AVG' if any([f'{self.segment} AVG' in x for x in self.overall_df.index]) else 'Avg'
         self.importance_df = self.get_attribute_importance_df()
-        self.verbatims_df = verbatims.set_index(verbatims.columns[0])
-        self.verbatims = self.get_verbatims()
+        self.verbatims_dict = verbatims
+        self.craveable_verbatims_df = self.get_verbatims_df('overall satisfaction')
+        self.satisfaction_verbatims_df = self.get_verbatims_df('craveability')
         self.competitive_df = self.get_competitive_df()
         self.explainer_df = self.get_data_from_excel(0, self.explainer_text_file, set_index=False)
         self.archetypes_df = self.get_data_from_excel(1, self.explainer_text_file)
@@ -1091,6 +1113,9 @@ class ConsumerKPIReportData(ReportData):
         segment = segment.upper() if 'C-Store' not in segment else segment
         return segment
 
+    def get_segment_df(self):
+        return self.overall_df.copy().loc[[x for x in self.overall_df.index if x.upper() == f"{self.segment} AVG"][0]]
+
     def get_attribute_importance_df(self):
         if 'C-Store' in self.segment:
             df = self.get_data_from_excel(1, set_index=False)
@@ -1101,37 +1126,26 @@ class ConsumerKPIReportData(ReportData):
         return df
 
     def get_competitive_df(self):
-        score_comparison_list = [f'{self.segment} Avg', self.report_focus]
+        score_comparison_list = [f'{self.segment} {self.abbreviation_used}', self.report_focus]
         for name in self.alt_visit_names:
             if name in self.overall_df.index:
                 score_comparison_list.append(name)
             else:
                 raise KeyError(name + ' not found in table. Possible Typo or missing data')
-        return self.overall_df.copy().loc[score_comparison_list]
 
-    def get_verbatims(self):
-        try:
-            brand_index = [x for x in self.verbatims_df.index.tolist() if self.report_focus in x][0]
-            verbatims = self.verbatims_df.loc[brand_index].copy()
-            verb_1 = verbatims[[x for x in verbatims if 'Reason for Rating' in x][0]].tolist()
-            verb_2 = verbatims[[x for x in verbatims if 'Unique Items' in x][0]].tolist()
-            verb_3 = verbatims[[x for x in verbatims if 'Craveable Items' in x][0]].tolist()
-            verbatims = set().union(*[verb_1, verb_2, verb_3])
-            verbatims = [str(x).capitalize() for x in verbatims]
-        except (KeyError, IndexError):
-            print(set(self.verbatims_df.index.tolist()))
-            verbatims = []
-        return verbatims
+        competitive_df = self.overall_df.copy().loc[score_comparison_list]
+        for name in competitive_df.index:
+            brand_name = competitive_df.at[name, 'Brand Name']
 
-    @staticmethod
-    def catch_brand_spelling_differences(obj):
-        to_catch = [
-            ('McDonalds', "McDonald's"),
-            ('Circkle K', 'Circle K'),
-            ('Caseys', "Casey's"),
-            ("Casey's", "Casey's General Store"),
-        ]
-        return [replace_chars(x, *to_catch) for x in obj]
+            if not is_null(brand_name):
+                competitive_df = competitive_df.rename(index={name: brand_name})
+        return competitive_df
+
+    def get_verbatims_df(self, df_name):
+        df = self.verbatims_dict[df_name]
+        df = df.set_index(df.columns[0])
+        df = df.loc[self.colloquial_brand].copy()
+        return df
 
     def get_data_from_excel(self, sheet_idx, excel_file=None, set_index=True):
         excel_file = self.excel_file if excel_file is None else excel_file
@@ -1144,7 +1158,7 @@ class ConsumerKPIReportData(ReportData):
         cover = PPTXPageMeta(charts=None, function='ignite cover')
         cover.title = 'Quarterly Competitive Report'
         cover.copy = {
-            0: [f'Created for {self.report_focus}'],
+            0: [f'Created for {self.colloquial_brand}'],
             1: [
                 'Brand Health Scorecard',
                 'Overall Satisfaction',
@@ -1156,6 +1170,14 @@ class ConsumerKPIReportData(ReportData):
         cover.shapes = [ShapeMeta(height=2.19, width=0.4, top=10.65, left=5.0, text=shape_text, fill_color='white')]
         return [cover]
 
+    def get_demographic_column_names(self):
+        parameters = {
+            "c-store consumer kpis": ["C-Store" in self.segment],
+            "canada consumer kpis": ["Chinese" in self.overall_df.columns],
+            "consumer kpis": [True]
+        }
+        return self.demographic_names[get_key_with_matching_parameters(parameters)]
+
     def get_demographic_skew_intro(self):
         archetype = self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Name"]
         copy = {0: [
@@ -1163,12 +1185,12 @@ class ConsumerKPIReportData(ReportData):
             str(self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Description"])
         ]}
         if self.has_page_tags:
-            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
         copy[1] = ['About Consumer Tracking'] + self.explainer_df[self.explainer_df.columns[0]].tolist()
         copy[2], copy[3], copy[4] = [], [], [' ']
 
         copy_keys = [2, 2, 3, 3]
-        demographics = self.demographic_names[f'{"c-store " if "C-Store" in self.segment else ""}consumer kpis']
+        demographics = self.get_demographic_column_names()
         for idx, (category, demographic_list) in enumerate(demographics.items()):
             demographics_frame = self.brand_series.copy()[demographic_list].transpose()
             max_index = demographics_frame.index.max()
@@ -1193,22 +1215,22 @@ class ConsumerKPIReportData(ReportData):
 
     def get_visit_alternatives_copy(self):
         footer = [
-            f'Base: {int(self.brand_series["Base Size"])} recent {self.report_focus} guests, {self.time_period}',
+            f'Base: {int(self.brand_series["Base Size"])} recent {self.colloquial_brand} guests, {self.time_period}',
             'Source: Ignite Consumer'
         ]
         visit_type = 'Visit a c-store or restaurant' if 'C-Store' in self.segment else "Visit a restaurant"
         copy = {}
         if self.has_page_tags:
-            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
         copy[0] = [
-            f'{t_round(self.brand_series[visit_type], 3): .1%}',
-            f'would have gone to another restaurant as an alternative to {self.report_focus}'
+            f'{t_round(self.brand_series[visit_type], 3): .1%}'.strip(),
+            f'would have gone to another restaurant as an alternative to {self.colloquial_brand}'
         ]
         return footer, copy
 
     def get_visit_alternatives_chart(self):
         values = self.brand_series['VA1-score':'VA6-score']
-        values.index = self.alt_visit_names
+        values.index = [self.overall_df.at[x, 'Brand Name'] for x in self.alt_visit_names]
         alt_visit_values_df = values.to_frame()
         chart = PPTXChartMeta(alt_visit_values_df, 'COLUMN')
         chart.chart_title = 'Percent of Consumers who Considered Visiting _________'.upper()
@@ -1247,7 +1269,7 @@ class ConsumerKPIReportData(ReportData):
             chart.highlight = True
             emphasis = f"{self.segment} Avg"
             chart.emphasis.append(emphasis)
-            chart.de_emphasis.extend([x for x in attribute_df.index if x not in [emphasis, self.report_focus]])
+            chart.de_emphasis.extend([x for x in attribute_df.index if x not in [emphasis, self.colloquial_brand]])
             charts.append(chart)
         for chart in charts:
             chart.chart_style.v_axis_maximum = max(maximum_list) + 0.2
@@ -1263,7 +1285,7 @@ class ConsumerKPIReportData(ReportData):
         ]
         copy = {}
         if self.has_page_tags:
-            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
         copy[0] = [f'/tagTop six visit factors when selecting a {self.segment} for a meal']
         importance, attribute = self.importance_df['Importance'].tolist(), self.importance_df['Attribute'].tolist()
         segment_attribute_list = [[f"/b{t_round(value, 3): .1%}# {name}"] for value, name in zip(importance, attribute)]
@@ -1276,63 +1298,23 @@ class ConsumerKPIReportData(ReportData):
         page.footer, page.copy = self.get_attribute_importance_copy()
         return [page]
 
-    def product_synonyms(self, text):
-        synonyms = {text}
-        text_sets = [
-            {'Frozen Beverage', 'Icee', 'Slurpee'}
-        ]
-        for x in text_sets:
-            if text in x:
-                synonyms = x
-        return synonyms
-
-    def positive_review_check(self, text):
-        positives = {
-            'Great', 'Friendly', 'really fast', 'helpful', 'delicious', 'tasty', 'high quality', 'the best', 'distinct',
-            'freshest', 'really good', 'My favorite', 'crave', 'craveable'
-        }
-        return any([x.lower() in str(text).lower() for x in positives])
-
-    def get_craveable_verbatims(self, categories):
-        craveable_categories = {x: [] for x in categories}
-        used_verbatims = []
-        for section, section_list in craveable_categories.items():
-            section_verbatims = []
-            for verb in self.verbatims:
-                if all([
-                    any([str(x).lower() in str(verb).lower() for x in self.product_synonyms(section)]),
-                    str(section).lower() != str(verb).lower(),
-                    str(verb).lower() not in used_verbatims,
-                    self.positive_review_check(verb)
-                ]):
-                    section_verbatims.extend([f"/h5{verb}"])
-            section_verbatims = [x for x in section_verbatims if 50 > len(x) > 5]
-            exclamations = [x for x in section_verbatims if '!' in x]
-            for x in exclamations:
-                section_verbatims.remove(x)
-            section_verbatims = exclamations + section_verbatims
-            section_verbatims = section_verbatims[:10]
-            used_verbatims.extend(section_verbatims)
-            craveable_categories[section].extend(section_verbatims)
-        return craveable_categories
-
-    def get_most_cravable_items_copy(self):
+    def get_most_craveable_items_footer(self):
+        base_number = f'{int(self.brand_series["Craveable Base"]):,}'
         footer = [
-            f' Base: {int(self.brand_series["Craveable Base"]) :,} recent {self.report_focus} guests {self.time_period}',
+            f' Base: {base_number} recent {self.colloquial_brand} guests {self.time_period}',
             'Source: Ignite Consumer'
         ]
-        categories = [x for x in self.brand_series['craveable_item1':'craveable_item5'].tolist() if not is_null(x)]
-        verbatims = self.get_craveable_verbatims(categories)
+        return footer
+
+    def get_craveable_verbatims(self):
+        positives = {'crave', 'i love t', 'excellent '}
+        craveable = self.craveable_verbatims_df[self.craveable_verbatims_df.columns[1]]
+        verbatims = [x for x in craveable if any([y.lower() in str(x).lower() for y in positives])]
         copy = {}
         if self.has_page_tags:
-            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
-        copy[0] = []
-        for key, value in verbatims.items():
-            if len(value) > 0:
-                copy.extend([f"/h2/b{key}"])
-                copy.extend(value)
-        copy[0] = ['No item-specific verbatims found for this brand'] if len(copy[0]) == 0 else copy
-        return footer, copy
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
+        copy[0] = [f"/h5{x}" for x in verbatims[:10]]
+        return copy
 
     def get_most_craveable_items_chart(self):
         categories = [x for x in self.brand_series['craveable_item1':'craveable_item5'].tolist()]
@@ -1346,28 +1328,29 @@ class ConsumerKPIReportData(ReportData):
         return [chart]
 
     def get_most_craveable_items(self):
-        footer, copy = self.get_most_cravable_items_copy()
         chart = self.get_most_craveable_items_chart()
         page = PPTXPageMeta(charts=chart, function='chart and text')
-        page.footer = footer
-        page.copy = copy
+        page.footer = self.get_most_craveable_items_footer()
+        page.copy = self.get_craveable_verbatims()
         return [page]
 
-    def get_overall_satisfaction_copy(self):
+    def get_overall_satisfaction_footer(self):
         footer = [
             'Q: Based on your recent visit, how would you rate the chain on the following?',
             f"Total base: {self.overall_brand_base} recent guests per brand {self.time_period}",
             'Showing percentage selecting very good (top-box rating)'
         ]
-        verbatims = [v for v in self.verbatims if self.positive_review_check(v)]
-        verbatims = [x for x in verbatims if 50 > len(x) > 5]
-        exclamations = [x for x in verbatims if '!' in x]
-        verbatims = [x for x in verbatims if '!' not in x]
+        return footer
+
+    def get_satistfaction_verbatims(self):
+        positives = {'crave', 'i love t', 'excellent ', ' enjoy', 'best around', 'has the best', 'good quality'}
+        craveable = self.craveable_verbatims_df[self.craveable_verbatims_df.columns[1]]
+        verbatims = [x for x in craveable if any([y.lower() in str(x).lower() for y in positives])]
         copy = {}
         if self.has_page_tags:
-            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
-        copy[0] = [f"/h5{x}" for x in (exclamations + verbatims)[:10]]
-        return footer, copy
+            copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
+        copy[0] = [f"/h5{x}" for x in verbatims[:10]]
+        return copy
 
     def get_overall_satisfaction_chart(self):
         overall_score_df = self.competitive_df.copy()[['Overall Rating']]
@@ -1378,21 +1361,21 @@ class ConsumerKPIReportData(ReportData):
         chart.highlight = True
         emphasis = f"{self.segment} Avg"
         chart.emphasis.append(emphasis)
-        chart.de_emphasis.extend([x for x in overall_score_df.index if x not in [emphasis, self.report_focus]])
+        chart.de_emphasis.extend([x for x in overall_score_df.index if x not in [emphasis, self.colloquial_brand]])
         return [chart]
 
     def get_overall_satisfaction(self):
-        footer, copy = self.get_overall_satisfaction_copy()
+        footer = self.get_overall_satisfaction_footer()
         chart = self.get_overall_satisfaction_chart()
         page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
-        page.copy = copy
+        page.copy = self.get_satistfaction_verbatims()
         return [page]
 
     def get_end_cap_page(self):
         end_cap_page = PPTXPageMeta(charts=None, function='end cap')
         end_cap_page.copy = {}
         if self.has_page_tags:
-            end_cap_page.copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.report_focus}"]
+            end_cap_page.copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
 
         end_cap_page.copy[0] = ['Robert Byrne', 'Director, Research and Insights' 'rbyrne@technomic.com']
         end_cap_page.copy[1] = ['Britany Trujillo', 'Manager, Research & Insights', 'btrujillo@technomic.com']
