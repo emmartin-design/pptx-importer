@@ -14,7 +14,19 @@ def get_preferred_layouts(report_type):
     All report types must have their preferred layouts here.
     The design team can help source these titles from the Template doc
     Flexible imports need options to cover all reasonable contingencies
+
+    Old List:
+    'TT_TitlePage',
+    'TT_Primary_Chart',
+    'TT_Primary_Table',
+    'TT_Two_Chart_Equal',
+    'TT_Two_Table_Equal',
+    'TT_3_Chart_Equal',
+    'TT_6_Chart_Equal',
+    'TT_2x2_Chart',
+    'TT_8_Chart',
     """
+
     preferred = {
         'General Import': [
             'TT_TitlePage',

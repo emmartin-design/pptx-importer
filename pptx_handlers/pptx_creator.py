@@ -34,13 +34,12 @@ def get_layout_by_function(page, template):
 
 
 def get_layout_by_placeholders(page, template):
-    print(page.chart_count, page.table_count)
     for chart in page.charts:
         print(chart.chart_title)
     for layout in template.layouts:
         if all([
-            layout.chart_count == page.chart_count,
-            layout.table_count == page.table_count
+            layout.chart_count >= page.chart_count,
+            layout.table_count >= page.table_count
         ]):
             return layout.layout
     return None
@@ -77,7 +76,7 @@ def add_chart_title(chart, chart_meta):
         print(f"Creating {title_text}")
         chart.has_title = True
         insert_text(
-            ParagraphInstance(title_text, bold=False, uppercase=True, font_size=11, alignment='center'),
+            ParagraphInstance(title_text, bold=True, uppercase=True, font_size=11, alignment='center'),
             chart.chart_title.text_frame,
             one_level=True
         )
@@ -130,7 +129,10 @@ def style_overlap_and_gap(chart, chart_meta):
 
 
 def style_legend(chart, chart_meta):
-    chart.has_legend = len(chart_meta.df.columns) > 1 and not chart_meta.chart_style.value_table_legend
+    chart.has_legend = any([
+        len(chart_meta.df.columns) > 1 and not chart_meta.chart_style.value_table_legend,
+        chart_meta.intended_chart_type in ['PIE', 'DONUT']
+    ])
 
     if chart.has_legend:
         chart.legend.include_in_layout = False

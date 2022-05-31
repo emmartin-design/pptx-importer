@@ -487,7 +487,7 @@ class PPTXPageMeta:
                 bases = [f'{chart.df.columns[idx]} base: {base}' for idx, base in zip(chart.base_col_idxs, chart.bases)]
             footer.append(', '.join(bases))
             if chart.chart_question is not None:
-                footer.append(f'Q; {chart.chart_question}')
+                footer.append(f'Q: {chart.chart_question}')
         return footer
 
     def get_chart_count(self):
