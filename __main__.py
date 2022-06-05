@@ -189,7 +189,7 @@ class PowerPointImporterTab(AppJarTab):
         verbatims = self.get_verbatims(excel_file)
 
         for report in self.get_report_list(report_type):
-            template = PPTXTemplate(template_file, report_type)
+            template = PPTXTemplate(template_file, report_type, use_old_template)
             print(f'Working on the {"" if report is None else report} report'.replace('  ', ' '))
             self.clear_status()
             self.parent.app.setStatusbar('Reading Template', field=0)

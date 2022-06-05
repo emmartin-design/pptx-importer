@@ -9,22 +9,11 @@ def footer_patch(self):
 SlideLayout.iter_cloneable_placeholders = footer_patch
 
 
-def get_preferred_layouts(report_type):
+def get_preferred_layouts(report_type, use_old_template):
     """
     All report types must have their preferred layouts here.
     The design team can help source these titles from the Template doc
     Flexible imports need options to cover all reasonable contingencies
-
-    Old List:
-    'TT_TitlePage',
-    'TT_Primary_Chart',
-    'TT_Primary_Table',
-    'TT_Two_Chart_Equal',
-    'TT_Two_Table_Equal',
-    'TT_3_Chart_Equal',
-    'TT_6_Chart_Equal',
-    'TT_2x2_Chart',
-    'TT_8_Chart',
     """
 
     preferred = {
@@ -35,8 +24,19 @@ def get_preferred_layouts(report_type):
             'TT_Two_Chart_Equal',
             'TT_Two_Table_Equal',
             'TT_3_Chart_Equal',
-            'TT_6_Chart_Equal',
             'TT_2x2_Chart',
+            'TT_6_Chart_Equal',
+            'TT_8_Chart',
+        ],
+        'OLD General Import': [
+            'TT_TitlePage',
+            'TT_Primary_Chart_&_Text',
+            'TT_Primary_Table_&_Text',
+            'TT_2_Chart_&_Text',
+            'TT_Two_Table_Equal',
+            'TT_3_Chart_&_Text',
+            'TT_4_Chart_&_Text'
+            'TT_6_Chart_&_Text',
             'TT_8_Chart',
         ],
         'Global Navigator Country Reports': [
@@ -84,18 +84,10 @@ def get_preferred_layouts(report_type):
             'TT_6_Chart_&_Text',
             'TT_Half_Chart_Half_Text',
             'TT_End Wrapper_w_Photos'
-        ],
-        'C-Store Consumer KPIs': [
-            'IGNITE_TitlePage',
-            'TT—Subsection Intro, Main Ideas',
-            'TT_Primary_Chart_&_Text',
-            'TT_6_Chart_&_Text',
-            'TT_End Wrapper_w_Photos'
-        ],
-        'Subway Scorecard': [
-            'TT_Chart_Parent_Child'
         ]
     }
+    if use_old_template:
+        return preferred.get('OLD General Import')
     return preferred.get(report_type)
 
 
@@ -149,14 +141,15 @@ class PPTXTemplate:
     It's also where the Presentation instance is stored, which is used to create the PPTX file later
     """
 
-    def __init__(self, template_dir, report_type):
+    def __init__(self, template_dir, report_type, use_old_template):
         self.prs = Presentation(template_dir)
         self.report_type = report_type
+        self.use_old_template = use_old_template
         self.layouts = [PPTXLayout(x, x_idx) for x_idx, x in enumerate(self.prs.slide_layouts)]
         self.assign_preferred_layouts()
 
     def assign_preferred_layouts(self):
-        preferred_layouts_by_report = get_preferred_layouts(self.report_type)
+        preferred_layouts_by_report = get_preferred_layouts(self.report_type, self.use_old_template)
         for layout in self.layouts:
             layout.preferred = layout.name in preferred_layouts_by_report
 

@@ -1110,11 +1110,12 @@ class ConsumerKPIReportData(ReportData):
     def get_segment_code(self):
         segment = self.brand_series.at['Seg']
         segment = segment.replace('Convenience ', 'C-')
-        segment = segment.upper() if 'C-Store' not in segment else segment
+        segment = segment.upper() if all([x not in segment for x in ['C-Store', 'Midscale']]) else segment
         return segment
 
     def get_segment_df(self):
-        return self.overall_df.copy().loc[[x for x in self.overall_df.index if x.upper() == f"{self.segment} AVG"][0]]
+        index_list = [x for x in self.overall_df.index if x.upper() == f"{self.segment} AVG".upper()]
+        return self.overall_df.copy().loc[index_list[0]]
 
     def get_attribute_importance_df(self):
         if 'C-Store' in self.segment:
@@ -1136,7 +1137,7 @@ class ConsumerKPIReportData(ReportData):
         competitive_df = self.overall_df.copy().loc[score_comparison_list]
         for name in competitive_df.index:
             brand_name = competitive_df.at[name, 'Brand Name']
-
+            print(brand_name)
             if not is_null(brand_name):
                 competitive_df = competitive_df.rename(index={name: brand_name})
         return competitive_df
