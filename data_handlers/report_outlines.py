@@ -374,6 +374,14 @@ class PPTXFlexibleChartMeta:
             cell_data_by_col.append(col_data)
         return cell_data_by_col
 
+    def extract_bases(self, list_of_data, list_idx, vertical_series_modifier):
+        try:
+            base_value = [x for x in list_of_data if 'Base: ' in str(x)][0].replace('Base: ', '')
+            self.bases.append(base_value)
+            self.base_col_idxs.append((list_idx - vertical_series_modifier))
+        except IndexError:
+            pass
+
     def clean_up_data(self):
         """
         Receives a list of lists and converts it into a dictionary for later dataframe conversion
@@ -382,18 +390,14 @@ class PPTXFlexibleChartMeta:
         vertical_series_modifier = 1
         for list_idx, list_of_data in enumerate([x for x in self.raw_data if len(x) > 0]):
             if is_all_strings(list_of_data):
-                categories = [remove_parentheticals(x) for x in list_of_data]
-                new_data[f'categories_{list_idx}'] = [x for x in categories if 'BASE: ' not in x.upper()]
+                list_of_data = [remove_parentheticals(x) for x in list_of_data]
+                new_data[f'categories_{list_idx}'] = [x for x in list_of_data if 'BASE: ' not in x.upper()]
             else:
-                first_string_instance = [x for x in list_of_data if isinstance(x, str)][0]
+                first_string_instance = [x for x in list_of_data if isinstance(x, str) and 'Base: ' not in x][0]
                 new_data[first_string_instance] = [x for x in list_of_data if isinstance(x, float)]
-                try:
-                    base_value = [x for x in list_of_data if 'Base: ' in str(x)][0].replace('Base: ', '')
-                    self.bases.append(base_value)
-                    self.base_col_idxs.append((list_idx - vertical_series_modifier))
-                except IndexError:
-                    pass
+            self.extract_bases(list_of_data, list_idx, vertical_series_modifier)
             vertical_series_modifier = 2 if 'categories_1' in new_data.keys() else 1
+        new_data = {x:y for x, y in new_data.items() if len(y) > 0}
         new_data = reformat_vertical_series(new_data)
         return new_data
 
