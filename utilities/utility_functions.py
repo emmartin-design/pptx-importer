@@ -85,10 +85,24 @@ def is_null(value):
     return pd.isnull(value)
 
 
+def get_list_in_order_of_occurrence(lst):
+    list_from_set = list(set(lst))
+    new_list = []
+    for x in lst:
+        if x in list_from_set:
+            new_list.append(x)
+            list_from_set.pop(list_from_set.index(x))
+    return new_list
+
+
 def pivot_dataframe(df, pivot_column):
     try:
+        index_order = get_list_in_order_of_occurrence(df.index.tolist())
+        columns = get_list_in_order_of_occurrence(df[pivot_column].tolist())
         df = df.pivot(columns=pivot_column)
         df = df.droplevel(0, axis='columns')
+        df = df.reindex(index_order)
+        df = df[columns]
     except KeyError:
         pass
     return df
