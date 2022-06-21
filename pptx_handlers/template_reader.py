@@ -86,7 +86,7 @@ def get_preferred_layouts(report_type, use_old_template):
             'TT_End Wrapper_w_Photos'
         ]
     }
-    if use_old_template:
+    if use_old_template and report_type == 'General Import':
         return preferred.get('OLD General Import')
     return preferred.get(report_type)
 
