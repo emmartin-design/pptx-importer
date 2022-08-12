@@ -1321,7 +1321,8 @@ class ConsumerKPIReportData(ReportData):
         copy = {}
         if self.has_page_tags:
             copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
-        copy[0] = [f"/h5{x}" for x in verbatims[:10]]
+        if len(verbatims) > 0:
+            copy[0] = [f"/h5{x}" for x in verbatims[:10]]
         return copy
 
     def get_most_craveable_items_chart(self):
@@ -1337,9 +1338,17 @@ class ConsumerKPIReportData(ReportData):
 
     def get_most_craveable_items(self):
         chart = self.get_most_craveable_items_chart()
-        page = PPTXPageMeta(charts=chart, function='chart and text')
+
+        copy = self.get_craveable_verbatims()
+        try:
+            len(copy[0])
+            page_function = 'chart and text'
+        except KeyError:
+            page_function = 'chart'
+
+        page = PPTXPageMeta(charts=chart, function=page_function)
+        page.copy = copy
         page.footer = self.get_most_craveable_items_footer()
-        page.copy = self.get_craveable_verbatims()
         return [page]
 
     def get_overall_satisfaction_footer(self):
@@ -1361,7 +1370,8 @@ class ConsumerKPIReportData(ReportData):
         copy = {}
         if self.has_page_tags:
             copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
-        copy[0] = [f"/h5{x}" for x in verbatims[:10]]
+        if len(verbatims) > 0:
+            copy[0] = [f"/h5{x}" for x in verbatims[:10]]
         return copy
 
     def get_overall_satisfaction_chart(self):
@@ -1381,11 +1391,13 @@ class ConsumerKPIReportData(ReportData):
         chart = self.get_overall_satisfaction_chart()
 
         copy = self.get_satistfaction_verbatims()
-        if len(copy) > 0:
-            page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
-            page.copy = copy
-        else:
-            page = PPTXPageMeta(charts=chart, function='chart', footer=footer)
+        try:
+            len(copy[0])
+            page_function = 'chart and text'
+        except KeyError:
+            page_function = 'chart'
+        page = PPTXPageMeta(charts=chart, function=page_function, footer=footer)
+        page.copy = copy
         return [page]
 
     def get_end_cap_page(self):

@@ -80,6 +80,7 @@ def get_preferred_layouts(report_type, use_old_template):
         'Quarterly Consumer KPIs': [
             'IGNITE_TitlePage',
             'TT—Subsection Intro, Main Ideas',
+            'TT_Primary_Chart',
             'TT_Primary_Chart_&_Text',
             'TT_6_Chart_&_Text',
             'TT_Half_Chart_Half_Text',
