@@ -1083,9 +1083,10 @@ class ConsumerKPIReportData(ReportData):
         'c-store consumer kpis': {
             'sex': ['Female', 'Male'],
             'generation': ['Generation Z', 'Millennials', 'Generation X', 'Baby Boomers', 'Matures'],
-            'ethnicity': ['Asian', 'Black/African American', 'Caucasian', 'Hispanic', 'Other'],
-            'income': ['Under $25,000', '$25,000 - $34,999', '$35,000 - $49,999', '$50,000 - $74,999',
-                       '$75,000 - $99,999', '$100,000- $150,000']
+            'ethnicity': ['Asian', 'Black/African American', 'White (non-Hispanic/Latino)', 'Hispanic/Latino',
+                          'Other Ethnicity'],
+            'income': ['Under $25,000', '$25,000-$34,999', '$35,000-$49,999', '$50,000-$74,999', '$75,000-$99,999',
+                       '$100,000-$150,000', '$150,000+',]
         }
 
     }
@@ -1122,12 +1123,9 @@ class ConsumerKPIReportData(ReportData):
         return self.overall_df.copy().loc[index_list[0]]
 
     def get_attribute_importance_df(self):
-        if 'C-Store' in self.segment:
-            df = self.get_data_from_excel(1, set_index=False)
-        else:
-            df = self.get_data_from_excel(1, set_index=True)
-            value_list = df.copy().loc[self.segment].values.tolist()
-            df = get_df_from_dict({'Attribute': value_list[0:6], 'Importance': value_list[6:]})
+        df = self.get_data_from_excel(1, set_index=True)
+        value_list = df.copy().loc[self.segment].values.tolist()
+        df = get_df_from_dict({'Attribute': value_list[0:6], 'Importance': value_list[6:]})
         return df
 
     def get_competitive_df(self):
@@ -1313,7 +1311,11 @@ class ConsumerKPIReportData(ReportData):
 
     def get_craveable_verbatims(self):
         positives = {'crave', 'i love t', 'excellent '}
-        craveable = self.craveable_verbatims_df[self.craveable_verbatims_df.columns[1]]
+        craveable = []
+        try:
+            craveable = self.craveable_verbatims_df[self.craveable_verbatims_df.columns[1]]
+        except AttributeError:
+            pass
         verbatims = [x for x in craveable if any([y.lower() in str(x).lower() for y in positives])]
         copy = {}
         if self.has_page_tags:
@@ -1349,7 +1351,11 @@ class ConsumerKPIReportData(ReportData):
 
     def get_satistfaction_verbatims(self):
         positives = {'crave', 'i love t', 'excellent ', ' enjoy', 'best around', 'has the best', 'good quality'}
-        craveable = self.craveable_verbatims_df[self.craveable_verbatims_df.columns[1]]
+        craveable = []
+        try:
+            craveable = self.craveable_verbatims_df[self.craveable_verbatims_df.columns[1]]
+        except AttributeError:
+            pass
         verbatims = [x for x in craveable if any([y.lower() in str(x).lower() for y in positives])]
         copy = {}
         if self.has_page_tags:
@@ -1372,8 +1378,13 @@ class ConsumerKPIReportData(ReportData):
     def get_overall_satisfaction(self):
         footer = self.get_overall_satisfaction_footer()
         chart = self.get_overall_satisfaction_chart()
-        page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
-        page.copy = self.get_satistfaction_verbatims()
+
+        copy = self.get_satistfaction_verbatims()
+        if len(copy) > 0:
+            page = PPTXPageMeta(charts=chart, function='chart and text', footer=footer)
+            page.copy = copy
+        else:
+            page = PPTXPageMeta(charts=chart, function='chart', footer=footer)
         return [page]
 
     def get_end_cap_page(self):
