@@ -691,6 +691,7 @@ class DirecTVReportData(ReportData):
             graph_df = graph_df.transpose()
             graph_instance = PPTXChartMeta(graph_df, 'LINE')
             graph_instance.chart_title = line_graphs[graph]['title']
+            graph_instance.decimal_places = 1
             charts.append(graph_instance)
         return charts
 
