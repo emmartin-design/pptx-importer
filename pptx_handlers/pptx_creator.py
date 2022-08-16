@@ -492,10 +492,10 @@ def add_shapes(slide, shapes):
     for shape_instance in shapes:
         shape = slide.shapes.add_shape(
             MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
-            Inches(shape_instance.left),
             Inches(shape_instance.top),
-            Inches(shape_instance.width),
-            Inches(shape_instance.height)
+            Inches(shape_instance.left),
+            Inches(shape_instance.height),
+            Inches(shape_instance.width)
         )
         shape.shadow.inherit = False
         if shape_instance.text is not None:

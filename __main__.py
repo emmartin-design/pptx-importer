@@ -80,6 +80,24 @@ class DTVValuesLabelFrame(AppJarLabelFrame):
             self.parent.app.addEntry(entry_field)
 
 
+class KPIReportValuesLabelFrame(AppJarLabelFrame):
+    def __init__(self, parent):
+        super().__init__(
+            parent,
+            title='KPI vals',
+            label='KPI report values for bases',
+            row=1,
+            column=0,
+            rowspan=2
+        )
+
+    def add_frame_content(self):
+        for label_idx, entry_field in enumerate(['Date of Run', 'Quarter Range']):
+            self.parent.app.addLabel(f'kpi{label_idx}', entry_field)
+            self.parent.app.addEntry(entry_field)
+
+
+
 class SettingsTab(AppJarTab):
     """
     This tab initiates and styles the settings tab
@@ -91,6 +109,7 @@ class SettingsTab(AppJarTab):
     def add_tab_contents(self):
         self.parent.app.addCheckBox('Use Old Template', row=0, column=0)
         self.parent.app.setCheckBox('Use Old Template', ticked=True, callFunction=False)
+        KPIReportValuesLabelFrame(self.parent)
         DTVValuesLabelFrame(self.parent)
 
 
@@ -143,6 +162,13 @@ class PowerPointImporterTab(AppJarTab):
         assert all_are_filled_in or all_are_blank
         return dtv_et_totals
 
+    def get_kpi_footer_ranges(self):
+        footer_values = [self.parent.app.getEntry(value) for value in ['Date of Run', 'Quarter Range']]
+        all_are_filled_in = all([x != '' for x in footer_values])
+        all_are_blank = all([x == '' for x in footer_values])
+        assert all_are_filled_in or all_are_blank
+        return footer_values
+
     def clear_status(self):
         for idx in range(1, 4):
             self.parent.app.setStatusbar('', field=idx)
@@ -194,6 +220,7 @@ class PowerPointImporterTab(AppJarTab):
             self.clear_status()
             self.parent.app.setStatusbar('Reading Template', field=0)
             entertainment = self.get_entertainment_values()
+            kpi_footer_ranges = self.get_kpi_footer_ranges()
             self.parent.app.setStatusbarBg("gray", field=0)
 
             report_text = "" if report is None else f'{report} '
@@ -204,7 +231,8 @@ class PowerPointImporterTab(AppJarTab):
                 has_page_tags=use_old_template,
                 entertainment=entertainment,
                 verbatims=verbatims,
-                report_focus=report
+                report_focus=report,
+                kpi_footer_ranges=kpi_footer_ranges
             )
             self.parent.app.setStatusbarBg("gray", field=1)
 

@@ -765,7 +765,7 @@ class LTOScorecardReportData(ReportData):
     lto_scorecard_text = 'templates/import_resources/text_files/lto_scorecard_text.xlsx'
 
     def __init__(self, excel_file, log_prefix=None, has_page_tags=False, **kwargs):
-        super().__init__(excel_file, log_prefix, has_page_tags)
+        super().__init__(excel_file, log_prefix, has_page_tags, **kwargs)
         self.overall_df = self.get_report_data()
         self.company = self.wb.sheetnames[0]
         self.explainer_text_1 = None
@@ -1057,8 +1057,8 @@ class LTOScorecardReportData(ReportData):
 
 
 class ConsumerKPIReportData(ReportData):
-    current_month = 'MARCH 2022'
-    time_period = '(Q1 2021 to Q4 2021)'
+    # current_month = 'August 2022'
+    # time_period = '(Q1 2021 to Q4 2021)'
     overall_brand_base = '700'
     explainer_text_file = 'templates/import_resources/text_files/consumer_kpi_static_text.xlsx'
 
@@ -1092,10 +1092,13 @@ class ConsumerKPIReportData(ReportData):
 
     }
 
-    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, verbatims=None, report_focus=None, **kwargs):
+    def __init__(self, excel_file, log_prefix=None, has_page_tags=False, verbatims=None, report_focus=None,
+                 kpi_footer_ranges=[None, None], **kwargs):
         super().__init__(excel_file, log_prefix, has_page_tags, **kwargs)
         self.report_focus = report_focus
         self.overall_df = self.get_data_from_excel(0)
+        self.current_month = str(kpi_footer_ranges[0])
+        self.time_period = f'({kpi_footer_ranges[1]})'
         self.brand_series = self.overall_df.copy().loc[report_focus]
         self.colloquial_brand = self.overall_df.at[report_focus, 'Brand Name']
         self.alt_visit_names = self.brand_series['VA-1':'VA-6'].values.tolist()
@@ -1159,18 +1162,31 @@ class ConsumerKPIReportData(ReportData):
         return df
 
     def get_cover_page(self):
+        print(self.segment)
         cover = PPTXPageMeta(charts=None, function='ignite cover')
-        cover.title = 'Quarterly Competitive Report'
-        cover.copy = {
-            0: [f'Created for {self.colloquial_brand}'],
-            1: [
-                'Brand Health Scorecard',
-                'Overall Satisfaction',
-                'Food & Beverage',
-                'Intent to Return'
-            ]
-        }
-        shape_text = ParagraphInstance(self.current_month.upper())
+        if self.segment == "C-Store":
+            cover.title = f'{self.colloquial_brand} KPI Stats'
+            cover.copy = {
+                0: ['Top-Line Competitive Brand Assessment'],
+                1: [
+                    'Brand Health Scorecard',
+                    'Overall Satisfaction',
+                    'Food & Beverage',
+                    'Craveable Items'
+                ]
+            }
+        else:
+            cover.title = 'Quarterly Competitive Report'
+            cover.copy = {
+                0: [f'Created for {self.colloquial_brand}'],
+                1: [
+                    'Brand Health Scorecard',
+                    'Overall Satisfaction',
+                    'Food & Beverage',
+                    'Intent to Return'
+                ]
+            }
+        shape_text = ParagraphInstance(self.current_month.upper(), font_color='black', font_size=10, alignment='center')
         cover.shapes = [ShapeMeta(height=2.19, width=0.4, top=10.65, left=5.0, text=shape_text, fill_color='white')]
         return [cover]
 
@@ -1185,7 +1201,7 @@ class ConsumerKPIReportData(ReportData):
     def get_demographic_skew_intro(self):
         archetype = self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Name"]
         copy = {0: [
-            f'{self.segment} guest Eater Archetype skew: {archetype}',
+            f'{self.colloquial_brand} guest Eater Archetype skew: {archetype}',
             str(self.archetypes_df.loc[self.brand_series.at["EaterArchetype"], "Description"])
         ]}
         if self.has_page_tags:
@@ -1197,14 +1213,23 @@ class ConsumerKPIReportData(ReportData):
         demographics = self.get_demographic_column_names()
         for idx, (category, demographic_list) in enumerate(demographics.items()):
             demographics_frame = self.brand_series.copy()[demographic_list].transpose()
-            max_index = demographics_frame.index.max()
-            segment_max_val = f'/b{t_round(self.segment_df.at[max_index], 3):.1%}#'
+            demographics_values = [demographics_frame.at[x] for x in demographic_list]
+            segment_values = [self.segment_df.at[x] for x in demographic_list]
+            segment_skews = [x - y for x, y in zip (demographics_values, segment_values)]
 
-            copy[copy_keys[idx]].append(f'/h1{t_round(demographics_frame.max(), 3):.1%}')
+            max_skew = max(segment_skews)
+            max_skew_index = segment_skews.index(max_skew)
+            max_skew_value = demographics_values[max_skew_index]
+            max_skew_brand_demographic = demographic_list[max_skew_index]
+            max_skew_segment_value = self.segment_df.at[max_skew_brand_demographic]
+
+            segment_max_val = f'/b{t_round(max_skew_segment_value, 3):.1%}#'
+
+            copy[copy_keys[idx]].append(f'/h1{t_round(max_skew_value, 3):.1%}')
 
             income_phrase = '/clearof frequent guests have a household income of #'
             phrase = income_phrase if idx == 3 else '/clearof frequent guests are#'
-            text = f'{phrase} {max_index} /clearcompared to# {segment_max_val} across the {self.segment} segment'
+            text = f'{phrase} {max_skew_brand_demographic} /clearcompared to# {segment_max_val} across the {self.segment} segment'
             copy[copy_keys[idx]].append(text)
 
         base_size = int(self.brand_series["Base Size"])
@@ -1228,7 +1253,7 @@ class ConsumerKPIReportData(ReportData):
             copy[-1] = [f"COMPETITIVE BRAND PERFORMANCE | {self.colloquial_brand}"]
         copy[0] = [
             f'{t_round(self.brand_series[visit_type], 3): .1%}'.strip(),
-            f'would have gone to another restaurant as an alternative to {self.colloquial_brand}'
+            f'would have gone to another would have gone to another C-store or restaurant as an alternative to {self.colloquial_brand}'
         ]
         return footer, copy
 
@@ -1408,7 +1433,7 @@ class ConsumerKPIReportData(ReportData):
 
         end_cap_page.copy[0] = ['Robert Byrne', 'Director, Research and Insights' 'rbyrne@technomic.com']
         end_cap_page.copy[1] = ['Britany Trujillo', 'Manager, Research & Insights', 'btrujillo@technomic.com']
-        end_cap_page.copy[2] = ['']
+        end_cap_page.copy[2] = [' ']
         end_cap_page.copy[3] = ["So. What's Next?", "Need some consumer questions answered? Reach out to our experts."]
 
         end_cap_page.pictures = [
