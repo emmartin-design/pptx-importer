@@ -514,18 +514,14 @@ class GeneralReportData(ReportData):
     @staticmethod
     def get_tab_groupings(charts):
         tab_color_groupings = []
-        chart_hopper = []
         for chart in charts:
-            chart_hopper.append(chart)
-            if any([
-                chart.tab_color is None,
-                len(chart_hopper) > 1 and chart.tab_color != chart_hopper[-2].tab_color
+            if all([
+                tab_color_groupings and tab_color_groupings[-1][0].tab_color == chart.tab_color,
+                chart.tab_color is not None,
             ]):
-                current_chart = chart_hopper.pop(len(chart_hopper) - 1)
-                if len(chart_hopper) > 0:
-                    tab_color_groupings.append(chart_hopper)
-                tab_color_groupings.append([current_chart])
-                chart_hopper = []
+                tab_color_groupings[-1].append(chart)
+            else:
+                tab_color_groupings.append([chart])
         return tab_color_groupings
 
     def get_pages(self):
