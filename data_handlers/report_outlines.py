@@ -538,7 +538,7 @@ class GeneralReportData(ReportData):
 
 
 class DirecTVReportData(ReportData):
-    month_variant = 3
+    month_variant = 2
     current_time = get_current_time()
     current_year = current_time['year']
     current_month = current_time['month']
@@ -563,12 +563,12 @@ class DirecTVReportData(ReportData):
     def date_manipulator(self, variant):
         year_number = (self.current_year - 1) if self.current_month < variant else self.current_year
         month_number = self.current_month - variant
-        month_number += (13 if month_number < 0 else 12 if month_number == 0 else month_number)
+        month_number += (13 if month_number < 0 else 12 if month_number == 0 else 0)
         return format_date(year_number, month_number, 15)
 
     def get_month_list(self, number_of_months=3, year=False):
         month_deq = deque(month_abbr[1:])
-        month_deq.rotate(1 - (self.current_month - (self.month_variant - 2)))
+        month_deq.rotate(self.month_variant - self.current_month)
         month_lst_full = list(month_deq)[(number_of_months * -1):]
         if year:
             years = [self.current_year for _ in month_lst_full]
