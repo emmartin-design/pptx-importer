@@ -538,7 +538,7 @@ class GeneralReportData(ReportData):
 
 
 class DirecTVReportData(ReportData):
-    month_variant = 2
+    month_variant = 3
     current_time = get_current_time()
     current_year = current_time['year']
     current_month = current_time['month']
@@ -568,7 +568,7 @@ class DirecTVReportData(ReportData):
 
     def get_month_list(self, number_of_months=3, year=False):
         month_deq = deque(month_abbr[1:])
-        month_deq.rotate(1 - self.current_month)
+        month_deq.rotate(1 - (self.current_month - (self.month_variant - 2)))
         month_lst_full = list(month_deq)[(number_of_months * -1):]
         if year:
             years = [self.current_year for _ in month_lst_full]
